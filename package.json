@@ -1,0 +1,23 @@
+{
+  "name": "discord-zulip-bridge",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Chat bridge between Discord and Zulip.",
+  "main": "main.js",
+  "scripts": {
+    "test": "node main.js debug",
+    "start": "node main.js"
+  },
+  "author": "MarkusRost",
+  "license": "ISC",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.5",
+    "npm": "^10.9.0",
+    "pg": "^8.13.1",
+    "zulip-js": "^2.1.0"
+  }
+}
