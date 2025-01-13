@@ -24,9 +24,28 @@ export default function formatter( msg ) {
 		content: msg.content,
 	};
 
+	// Silent mentions
+	if ( message.content.includes( '@_' ) ) {
+		message.content = message.content.replaceAll( '@_', '@' );
+	}
+
+	// Message links
+	const linkRegex = /\/#narrow\/channel\/([^\/\) ]+)\/topic\/([^\/\) ]+)\/near\/(\d+)/g
+	let linkMatch;
+	while ( ( linkMatch = linkRegex.exec( message.content ) ) !== null ) {
+		let [link, channel, topic, msgId] = linkMatch;
+		// TODO: Replace with Discord message links if we know the connection
+		message.content = message.content.replace( `](${process.env.ZULIP_REALM}${link})`, `](<${process.env.ZULIP_REALM}${link}>)` );
+	}
+
 	// File uploads
 	if ( message.content.includes( '](/user_uploads/' ) ) {
 		message.content = message.content.replaceAll( '](/user_uploads/', `](${process.env.ZULIP_REALM}/user_uploads/` );
+	}
+
+	// Quotes
+	if ( message.content.includes( '```quote\n' ) ) {
+		message.content = replaceQuote( message.content );
 	}
 
 	// Timestamps
@@ -40,47 +59,31 @@ export default function formatter( msg ) {
 	// Source: https://github.com/zulip/zulip/blob/main/web/third/marked/lib/marked.cjs#L650
 	const regexes = [...linkifier_map.keys()];
 	regexes.forEach(function (regex) {
-		var ret = inlineReplacement(regex, message.content, function(regex, groups, match) {
+		message.content = message.content.replace(regex, (match, ...groups) => {
 			// Insert the created URL
-			let href = handleLinkifier(regex, groups, match);
+			let href = handleLinkifier(regex, groups.slice(0, -2), match);
 			if (href !== undefined) {
 				return `[${match}](<${href}>)`;
 			} else {
 				return match;
 			}
 		});
-
-		message.content = ret[0] + ret[1];
 	});
 
 	return message;
 }
 
 /**
- * Source: https://github.com/zulip/zulip/blob/main/web/third/marked/lib/marked.cjs#L613
- * @param {RegExp} regex 
+ * Recursively replace quote blocks
  * @param {String} src 
- * @param {Function} replace_func 
- * @returns {[String, String]}
+ * @returns {String}
  */
-function inlineReplacement( regex, src, replace_func ) {
-	var cap, out = "";
-	regex.lastIndex = 0;
-	if (cap = regex.exec(src)) {
-		// Split before-match into its own segment and handle it separately
-		var match_idx = regex.lastIndex;
-		var before = src.substring(0, match_idx - cap[0].length);
-		// before = this.output(before);
-		out += before;
-	
-		// Consume all of the matched text
-		src = src.substring(match_idx);
-	
-		out += replace_func(regex, cap.slice(1), cap[0]);
-	}
-
-	return [src, out];
-};
+function replaceQuote( src ) {
+	return src.replace( /(```+)quote\n(.*?)\n\1/gs, (src, block, quote) => {
+		if ( quote.includes( '```quote\n' ) ) quote = replaceQuote( quote );
+		return '> ' + quote.replaceAll( '\n', '\n> ' );
+	} );
+}
 
 /**
  * Source: https://github.com/zulip/zulip/blob/main/web/src/markdown.ts#L553

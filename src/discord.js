@@ -1,10 +1,11 @@
-import {Events} from 'discord.js';
+import {Events, MessageFlags} from 'discord.js';
 import {zulip, client} from './clients.js';
 import formatToZulip from './formatter/discordToZulip.js';
 
 client.on( Events.MessageCreate, async msg => {
 	if ( !msg.channel.isTextBased() || msg.system ) return;
 	if ( msg.applicationId === process.env.DISCORD_ID ) return;
+	if ( msg.flags.has( MessageFlags.Loading ) ) return;
 
 	// TEMP RESTRICTION TO SINGLE CHANNEL
 	if ( msg.channelId !== '1328127929112334346' ) return;
@@ -14,7 +15,7 @@ client.on( Events.MessageCreate, async msg => {
 		topic: 'Test topic',
 	};
 
-	zulip.messages.send( Object.assign( formatToZulip( msg ), zulipChannel ) )
+	zulip.messages.send( Object.assign( formatToZulip( msg ), zulipChannel ) );
 } );
 
 client.on( Events.MessageUpdate, (oldmsg, msg) => {
@@ -28,6 +29,10 @@ client.on( Events.MessageUpdate, (oldmsg, msg) => {
 		to: 462695,
 		topic: 'Test topic',
 	};
+
+	if ( oldmsg.flags.has( MessageFlags.Loading ) && !msg.flags.has( MessageFlags.Loading ) ) {
+		zulip.messages.send( Object.assign( formatToZulip( msg ), zulipChannel ) );
+	}
 } );
 
 client.on( Events.GuildCreate, guild => {
