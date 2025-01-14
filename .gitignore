@@ -6,3 +6,5 @@ node_modules/
 *.code-workspace
 *.bat
 error.js
+.vscode
+messages.db

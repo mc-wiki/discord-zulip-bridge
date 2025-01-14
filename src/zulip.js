@@ -1,5 +1,6 @@
-import {zulip, client} from './clients.js';
+import { zulip, client } from './clients.js';
 import formatToDiscord from './formatter/zulipToDiscord.js';
+import { db, messagesTable } from './db.js';
 
 /** @type {Map<String, Discord.Webhook>} */
 const webhookMap = new Map();
@@ -31,5 +32,13 @@ async function onZulipMessage( msg ) {
 	}
 	let webhook = webhookMap.get( webhookChannel.id );
 
-	webhook.send( Object.assign( formatToDiscord( msg ), {threadId} ) );
+	const discordMsg = await webhook.send(Object.assign(formatToDiscord(msg), { threadId }));
+	await db.insert(messagesTable).values({
+		discordMessageId: discordMsg.id,
+		discordChannelId: discordMsg.channelId,
+		zulipMessageId: msg.id,
+		zulipStream: msg.stream_id,
+		zulipSubject: msg.subject,
+		source: 'zulip',
+	});
 }
