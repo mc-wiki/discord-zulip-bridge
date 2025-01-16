@@ -1,5 +1,8 @@
 import * as url_template_lib from 'url-template';
-import {zulip} from '../clients.js';
+import { messageLink } from 'discord.js';
+import { zulip, discord } from '../clients.js';
+import { db, messagesTable } from '../db.js';
+import { eq } from 'drizzle-orm';
 
 /** @type {Map<RegExp, {url_template: url_template_lib.Template; group_number_to_name: Record<number, string>}>} */
 const linkifier_map = new Map();
@@ -14,9 +17,9 @@ zulip.callEndpoint('/realm/linkifiers').then( result => {
  * @param {String} msg.sender_full_name
  * @param {String} msg.avatar_url
  * @param {String} msg.content
- * @returns {import('discord.js').WebhookMessageCreateOptions}
+ * @returns {Promise<import('discord.js').WebhookMessageCreateOptions>}
  */
-export default function formatter( msg ) {
+export default async function formatter( msg ) {
 	/** @type {import('discord.js').WebhookMessageCreateOptions} */
 	let message = {
 		username: msg.sender_full_name,
@@ -34,8 +37,17 @@ export default function formatter( msg ) {
 	let linkMatch;
 	while ( ( linkMatch = linkRegex.exec( message.content ) ) !== null ) {
 		let [link, channel, topic, msgId] = linkMatch;
-		// TODO: Replace with Discord message links if we know the connection
-		message.content = message.content.replace( `](${process.env.ZULIP_REALM}${link})`, `](<${process.env.ZULIP_REALM}${link}>)` );
+
+		const discordMessages = await db.select().from(messagesTable).where(eq(messagesTable.zulipMessageId, msgId));
+		let replacement = `](<${process.env.ZULIP_REALM}${link}>)`;
+		if ( discordMessages.length > 0 ) {
+			/** @type {import('discord.js').GuildChannel} */
+			const discordChannel = await discord.channels.fetch(discordMessages[0].discordChannelId);
+			if ( discordChannel ) {
+				replacement = `](<${messageLink(discordChannel.id, discordMessages[0].discordMessageId, discordChannel.guildId)}>)`;
+			}
+		}
+		message.content = message.content.replace( `](${process.env.ZULIP_REALM}${link})`, replacement );
 	}
 
 	// File uploads

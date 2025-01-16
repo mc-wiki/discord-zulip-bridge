@@ -1,19 +1,18 @@
-import { integer } from 'drizzle-orm/pg-core'
-import { int, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, integer, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
-import { drizzle } from 'drizzle-orm/libsql'
+import { drizzle } from 'drizzle-orm/libsql';
 
-export const db = drizzle({ connection: { url: 'file:messages.db' } })
+export const db = drizzle({ connection: { url: 'file:messages.db' } });
 
 export const messagesTable = sqliteTable(
 	'messages',
 	{
 		discordMessageId: text().unique(),
 		discordChannelId: text(),
-		zulipMessageId: text().unique(),
+		zulipMessageId: integer().unique(),
 		zulipStream: integer(),
-		zulipSubject: text().unique(),
-		source: text().notNull(),
+		zulipSubject: text(),
+		source: text({enum:['discord', 'zulip']}).notNull(),
 	},
 	(table) => [
 		uniqueIndex('discord_id_idx').on(table.discordMessageId),

@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import {zulip, client} from './src/clients.js';
+import {zulip, discord} from './src/clients.js';
 
 import './src/discord.js';
 import './src/zulip.js';
@@ -9,8 +9,8 @@ import './src/zulip.js';
  * @param {NodeJS.Signals} signal - The signal received.
  */
 function graceful(signal) {
-	client.destroy();
-	console.log( '- ' + signal + ': Destroying client...' );
+	discord.destroy();
+	console.log( '- ' + signal + ': Destroying Discord client...' );
 	process.exit(0);
 }
 
