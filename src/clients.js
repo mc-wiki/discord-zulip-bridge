@@ -9,7 +9,7 @@ export const zulip = await zulipInit( {
 	realm: process.env.ZULIP_REALM,
 } );
 
-export const client = new Discord.Client( {
+export const discord = new Discord.Client( {
 	makeCache: Discord.Options.cacheWithLimits( {
 		MessageManager: 200,
 		PresenceManager: 0
@@ -40,24 +40,24 @@ export const client = new Discord.Client( {
 	]
 } );
 
-client.on( Discord.Events.ClientReady, () => {
-	console.log( '\n- Successfully logged in on Discord as ' + client.user.username + '!\n' );
+discord.on( Discord.Events.ClientReady, () => {
+	console.log( '\n- Successfully logged in on Discord as ' + discord.user.username + '!\n' );
 } );
 
-client.on( Discord.Events.Error, console.error );
-client.on( Discord.Events.Warn, console.warn );
+discord.on( Discord.Events.Error, console.error );
+discord.on( Discord.Events.Warn, console.warn );
 
-client.login(process.env.DISCORD_TOKEN).catch( error => {
+discord.login(process.env.DISCORD_TOKEN).catch( error => {
 	console.log( '- Error while logging in:', error );
-	client.login(process.env.DISCORD_TOKEN).catch( error => {
+	discord.login(process.env.DISCORD_TOKEN).catch( error => {
 		console.warn( '- Error while logging in:', error );
-		client.login(process.env.DISCORD_TOKEN).catch( error => {
+		discord.login(process.env.DISCORD_TOKEN).catch( error => {
 			console.error( '- Error while logging in:', error );
 			process.exit(1);
 		} );
 	} );
 } );
 
-if ( isDebug ) client.on( Discord.Events.Debug, debug => {
+if ( isDebug ) discord.on( Discord.Events.Debug, debug => {
 	if ( isDebug ) console.log( '- Debug: ' + debug );
 } );

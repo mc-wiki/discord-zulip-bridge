@@ -1,5 +1,8 @@
 import * as url_template_lib from 'url-template';
-import {zulip} from '../clients.js';
+import { messageLink } from 'discord.js';
+import { zulip, discord } from '../clients.js';
+import { db, messagesTable } from '../db.js';
+import { eq } from 'drizzle-orm';
 
 /** @type {Map<RegExp, {url_template: url_template_lib.Template; group_number_to_name: Record<number, string>}>} */
 const linkifier_map = new Map();
@@ -14,14 +17,15 @@ zulip.callEndpoint('/realm/linkifiers').then( result => {
  * @param {String} msg.sender_full_name
  * @param {String} msg.avatar_url
  * @param {String} msg.content
- * @returns {import('discord.js').WebhookMessageCreateOptions}
+ * @param {Boolean} msg.is_me_message
+ * @returns {Promise<import('discord.js').WebhookMessageCreateOptions>}
  */
-export default function formatter( msg ) {
+export default async function formatter( msg ) {
 	/** @type {import('discord.js').WebhookMessageCreateOptions} */
 	let message = {
 		username: msg.sender_full_name,
 		avatarURL: msg.avatar_url,
-		content: msg.content,
+		content: ( msg.is_me_message ? '_' + msg.content.replace( /^\/me /, '' ) + '_' : msg.content ),
 	};
 
 	// Silent mentions
@@ -34,8 +38,35 @@ export default function formatter( msg ) {
 	let linkMatch;
 	while ( ( linkMatch = linkRegex.exec( message.content ) ) !== null ) {
 		let [link, channel, topic, msgId] = linkMatch;
-		// TODO: Replace with Discord message links if we know the connection
-		message.content = message.content.replace( `](${process.env.ZULIP_REALM}${link})`, `](<${process.env.ZULIP_REALM}${link}>)` );
+
+		const discordMessages = await db.select().from(messagesTable).where(eq(messagesTable.zulipMessageId, msgId));
+		let replacement = `](<${process.env.ZULIP_REALM}${link}>)`;
+		if ( discordMessages.length > 0 ) {
+			/** @type {import('discord.js').GuildChannel} */
+			const discordChannel = await discord.channels.fetch(discordMessages[0].discordChannelId);
+			if ( discordChannel ) {
+				replacement = `](<${messageLink(discordChannel.id, discordMessages[0].discordMessageId, discordChannel.guildId)}>)`;
+			}
+		}
+		message.content = message.content.replaceAll( `](${process.env.ZULIP_REALM}${link})`, replacement );
+	}
+
+	// Message mentions
+	const msgMentionRegex = /#\*\*([^>*]+)>([^@*]+)@(\d+)\*\*/g
+	let msgMentionMatch;
+	while ( ( msgMentionMatch = msgMentionRegex.exec( message.content ) ) !== null ) {
+		let [link, channel, topic, msgId] = msgMentionMatch;
+
+		const discordMessages = await db.select().from(messagesTable).where(eq(messagesTable.zulipMessageId, msgId));
+		let replacement = `**[#${channel}>${topic}@${msgId}](<${process.env.ZULIP_REALM}/#narrow/channel/${encodeURIComponent(channel)}/topic/${encodeURIComponent(topic)}/near/${msgId}>)**`;
+		if ( discordMessages.length > 0 ) {
+			/** @type {import('discord.js').GuildChannel} */
+			const discordChannel = await discord.channels.fetch(discordMessages[0].discordChannelId);
+			if ( discordChannel ) {
+				replacement = messageLink(discordChannel.id, discordMessages[0].discordMessageId, discordChannel.guildId);
+			}
+		}
+		message.content = message.content.replaceAll( link, replacement );
 	}
 
 	// File uploads
@@ -79,7 +110,7 @@ export default function formatter( msg ) {
  * @returns {String}
  */
 function replaceQuote( src ) {
-	return src.replace( /(```+)quote\n(.*?)\n\1/gs, (src, block, quote) => {
+	return src.replace( /(```+)quote\n(.*?)\n\1\n?/gs, (src, block, quote) => {
 		if ( quote.includes( '```quote\n' ) ) quote = replaceQuote( quote );
 		return '> ' + quote.replaceAll( '\n', '\n> ' );
 	} );
