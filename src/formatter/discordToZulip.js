@@ -1,4 +1,5 @@
-import { FormattingPatterns, MessageReferenceType, MessageType } from 'discord.js';
+import { FormattingPatterns, MessageFlags, MessageReferenceType, MessageType } from 'discord.js';
+import { zulip } from '../clients.js';
 import { db, messagesTable } from '../db.js';
 import { eq } from 'drizzle-orm';
 
@@ -10,8 +11,43 @@ import { eq } from 'drizzle-orm';
 export default async function formatter( msg ) {
 	/** @type {{content: String}} */
 	let message = {
-		content: '@' + msg.author.displayName + ': ' + msg.cleanContent,
+		content: '@\u200b' + msg.author.displayName + ': ' + msg.cleanContent,
 	};
+
+	// Loading bot response
+	if ( msg.flags.has( MessageFlags.Loading ) ) {
+		message.content += '*Loading…*';
+		return message;
+	}
+
+	// Message reply
+	if ( msg.type === MessageType.Reply && msg.reference?.type === MessageReferenceType.Default ) {
+		const discordMessage = await msg.fetchReference();
+		const zulipMessages = await db.select().from(messagesTable).where(eq(messagesTable.discordMessageId, discordMessage.id));
+		let sourceLink = 'Reply to';
+		let sourceUser = '@\u200b' + discordMessage.author.displayName;
+		let sourceContent = discordMessage.cleanContent;
+		if ( zulipMessages.length > 0 ) {
+			sourceLink = `[Reply to](${process.env.ZULIP_REALM}/#narrow/channel/${zulipMessages[0].zulipStream}/topic/${encodeURIComponent(zulipMessages[0].zulipSubject)}/near/${zulipMessages[0].zulipMessageId})`;
+			if ( zulipMessages[0].source === 'zulip' ) {
+				const zulipSource = ( await zulip.messages.getById( {
+					message_id: zulipMessages[0].zulipMessageId,
+					apply_markdown: false,
+				} ) ).message;
+				if ( zulipSource ) {
+					sourceContent = zulipSource.content;
+					sourceUser = `@**${zulipSource.sender_full_name}|${zulipSource.sender_id}**`;
+				}
+			}
+		};
+		let text = `> ${sourceLink} ${sourceUser}: `;
+		if ( discordMessage.attachments.size ) text += '🖼️ ';
+		if ( sourceContent ) {
+			text += sourceContent.replaceAll( '\n', ' ' ).slice(0, 100);
+			if ( sourceContent.length > 100 ) text += '…';
+		}
+		message.content = text + '\n\n' + message.content;
+	}
 
 	// Message forwarding
 	if ( msg.reference?.type === MessageReferenceType.Forward ) {
@@ -21,20 +57,15 @@ export default async function formatter( msg ) {
 			if ( zulipMessages.length > 0 ) {
 				sourceLink = `[Message](${process.env.ZULIP_REALM}/#narrow/channel/${zulipMessages[0].zulipStream}/topic/${zulipMessages[0].zulipSubject}/near/${zulipMessages[0].zulipMessageId})`;
 			};
-			let text = sourceLink + ' forwarded by @' + msg.author.displayName + ':\n````quote\n';
+			let text = sourceLink + ' forwarded by @\u200b' + msg.author.displayName + ':\n````quote\n';
 			text += ( snapshot.cleanContent || '' ) + msgAttachmentLinks( snapshot );
 			text += '\n````';
 			return text;
-		} ) ) ).join('\n');
-		if ( msg.content.length || msg.attachments.size ) {
-			message.content += '\n@' + msg.author.displayName + ': ' + msg.cleanContent;
-		}
+		} ) ) ).join('\n') + ( msg.content.length || msg.attachments.size ? '\n' + message.content : '' );
 	}
 
-	// Message reply
-	if ( msg.type === MessageType.Reply ) {
-		
-	}
+	// Message links
+
 
 	// Wildcard mentions
 	message.content = message.content.replace( /@\*\*(all|everyone|channel|topic)\*\*/g, '@\u200b**$1**' );

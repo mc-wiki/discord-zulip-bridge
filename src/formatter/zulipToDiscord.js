@@ -17,6 +17,7 @@ zulip.callEndpoint('/realm/linkifiers').then( result => {
  * @param {String} msg.sender_full_name
  * @param {String} msg.avatar_url
  * @param {String} msg.content
+ * @param {Boolean} msg.is_me_message
  * @returns {Promise<import('discord.js').WebhookMessageCreateOptions>}
  */
 export default async function formatter( msg ) {
@@ -24,7 +25,7 @@ export default async function formatter( msg ) {
 	let message = {
 		username: msg.sender_full_name,
 		avatarURL: msg.avatar_url,
-		content: msg.content,
+		content: ( msg.is_me_message ? '_' + msg.content.replace( /^\/me /, '' ) + '_' : msg.content ),
 	};
 
 	// Silent mentions
@@ -47,7 +48,25 @@ export default async function formatter( msg ) {
 				replacement = `](<${messageLink(discordChannel.id, discordMessages[0].discordMessageId, discordChannel.guildId)}>)`;
 			}
 		}
-		message.content = message.content.replace( `](${process.env.ZULIP_REALM}${link})`, replacement );
+		message.content = message.content.replaceAll( `](${process.env.ZULIP_REALM}${link})`, replacement );
+	}
+
+	// Message mentions
+	const msgMentionRegex = /#\*\*([^>*]+)>([^@*]+)@(\d+)\*\*/g
+	let msgMentionMatch;
+	while ( ( msgMentionMatch = msgMentionRegex.exec( message.content ) ) !== null ) {
+		let [link, channel, topic, msgId] = msgMentionMatch;
+
+		const discordMessages = await db.select().from(messagesTable).where(eq(messagesTable.zulipMessageId, msgId));
+		let replacement = `**[#${channel}>${topic}@${msgId}](<${process.env.ZULIP_REALM}/#narrow/channel/${encodeURIComponent(channel)}/topic/${encodeURIComponent(topic)}/near/${msgId}>)**`;
+		if ( discordMessages.length > 0 ) {
+			/** @type {import('discord.js').GuildChannel} */
+			const discordChannel = await discord.channels.fetch(discordMessages[0].discordChannelId);
+			if ( discordChannel ) {
+				replacement = messageLink(discordChannel.id, discordMessages[0].discordMessageId, discordChannel.guildId);
+			}
+		}
+		message.content = message.content.replaceAll( link, replacement );
 	}
 
 	// File uploads
@@ -91,7 +110,7 @@ export default async function formatter( msg ) {
  * @returns {String}
  */
 function replaceQuote( src ) {
-	return src.replace( /(```+)quote\n(.*?)\n\1/gs, (src, block, quote) => {
+	return src.replace( /(```+)quote\n(.*?)\n\1\n?/gs, (src, block, quote) => {
 		if ( quote.includes( '```quote\n' ) ) quote = replaceQuote( quote );
 		return '> ' + quote.replaceAll( '\n', '\n> ' );
 	} );

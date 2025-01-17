@@ -5,6 +5,7 @@
   "description": "Chat bridge between Discord and Zulip.",
   "main": "main.js",
   "scripts": {
+    "build": "npx drizzle-kit push",
     "test": "node main.js debug",
     "start": "node main.js"
   },
