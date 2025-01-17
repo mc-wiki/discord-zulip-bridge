@@ -41,4 +41,4 @@ The `!bridge` command is available to configure channel links. You can use this 
   - `zulipChannelMention`: Mention the channel on Zulip
   - `discordChannelId`: You can obtain this by turning on User Settings > Advanced > Developer Mode and right click the channel to copy its ID
   - If `includeThreads` is `true`, threads created on the Zulip/Discord channel will be synced to the respective Discord/Zulip channel.
-- Example: ``!bridge #**Channel>Topic** 123456789012345 true`
+- Example: `!bridge #**Channel>Topic** 123456789012345 true`
