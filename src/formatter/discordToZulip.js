@@ -73,9 +73,6 @@ export default async function formatter( msg ) {
 	// Message links
 
 
-	// Wildcard mentions
-	message.content = message.content.replace( /@\*\*(all|everyone|channel|topic)\*\*/g, '@\u200b**$1**' );
-
 	// Timestamps
 	message.content = message.content.replace( new RegExp(FormattingPatterns.Timestamp, 'g'), (src, time) => {
 		return `<time:${new Date( +(time + '000') ).toISOString()}>`;
@@ -83,6 +80,9 @@ export default async function formatter( msg ) {
 
 	// File uploads
 	message.content += await msgAttachmentLinks( msg );
+
+	// Wildcard mentions
+	message.content = message.content.replace( /@\*\*(all|everyone|channel|topic)\*\*/g, '@\u200b**$1**' );
 
 	return message;
 }
