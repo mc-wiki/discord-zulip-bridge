@@ -12,7 +12,7 @@ import { eq } from 'drizzle-orm';
 export default async function formatter( msg ) {
 	/** @type {{content: String}} */
 	let message = {
-		content: '@\u200b' + msg.member.displayName + ': ' + msg.cleanContent,
+		content: '@\u200b' + ( msg.member || msg.author ).displayName + ': ' + msg.cleanContent,
 	};
 
 	// Loading bot response
@@ -26,7 +26,7 @@ export default async function formatter( msg ) {
 		const discordMessage = await msg.fetchReference();
 		const zulipMessages = await db.select().from(messagesTable).where(eq(messagesTable.discordMessageId, discordMessage.id));
 		let sourceLink = 'Reply to';
-		let sourceUser = '@\u200b' + discordMessage.member.displayName;
+		let sourceUser = '@\u200b' + ( discordMessage.member || discordMessage.author ).displayName;
 		let sourceContent = discordMessage.cleanContent;
 		if ( zulipMessages.length > 0 ) {
 			sourceLink = `[Reply to](${process.env.ZULIP_REALM}/#narrow/channel/${zulipMessages[0].zulipStream}/topic/${encodeURIComponent(zulipMessages[0].zulipSubject)}/near/${zulipMessages[0].zulipMessageId})`;
@@ -58,7 +58,7 @@ export default async function formatter( msg ) {
 			if ( zulipMessages.length > 0 ) {
 				sourceLink = `[Message](${process.env.ZULIP_REALM}/#narrow/channel/${zulipMessages[0].zulipStream}/topic/${zulipMessages[0].zulipSubject}/near/${zulipMessages[0].zulipMessageId})`;
 			};
-			let text = sourceLink + ' forwarded by @\u200b' + msg.member.displayName + ':\n``````quote\n';
+			let text = sourceLink + ' forwarded by @\u200b' + ( msg.member || msg.author ).displayName + ':\n``````quote\n';
 			text += ( snapshot.cleanContent || '' );
 			text += msgEmbeds( msg );
 			text += await msgAttachmentLinks( snapshot );

@@ -34,7 +34,7 @@ export default async function formatter( msg ) {
 	}
 
 	// Message links
-	const linkRegex = /\/#narrow\/channel\/([^\/\) ]+)\/topic\/([^\/\) ]+)\/near\/(\d+)/g
+	const linkRegex = /\/#narrow\/channel\/([^\/\) ]+)\/topic\/([^\/\) ]+)\/near\/(\d+)/g;
 	let linkMatch;
 	while ( ( linkMatch = linkRegex.exec( message.content ) ) !== null ) {
 		let [link, channel, topic, msgId] = linkMatch;
