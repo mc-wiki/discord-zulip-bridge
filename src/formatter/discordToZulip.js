@@ -129,7 +129,7 @@ function msgRichEmbed( embed ) {
 	}
 	if ( embed.title ) {
 		let title = embed.title;
-		if ( embed.url ) author = `[${embed.title}](${embed.url})`;
+		if ( embed.url ) title = `[${embed.title}](${embed.url})`;
 		let thumbnail = '';
 		if ( embed.thumbnail?.url ) thumbnail = ` [thumbnail](${embed.thumbnail.url})`;
 		text += `**${title}**${thumbnail}\n`;
