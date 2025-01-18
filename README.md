@@ -19,7 +19,7 @@
 ## Setup
 
 1. Install latest LTS Node.js
-2. Run `npm install` and `npm build`
+2. Run `npm install` and `npm run build`
 3. Create `.env` file with:
 ```env
 DISCORD_TOKEN=""
@@ -29,8 +29,16 @@ ZULIP_USERNAME="(This is the bot email)"
 ZULIP_API_KEY=""
 ZULIP_REALM="https://mc-wiki.zulipchat.com"
 ```
-4. Run `npm start` to start the bridge
-5. See [Commands](#commands) to set up channel links
+4. Create `config.json` file with:
+```json
+{
+	"ignored_discord_users": [],
+	"ignored_zulip_users": [],
+	"upload_files_to_zulip": false
+}
+```
+5. Run `npm start` to start the bridge
+6. See [Commands](#commands) to set up channel links
 
 ## Commands
 

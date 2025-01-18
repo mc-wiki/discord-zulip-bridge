@@ -8,3 +8,4 @@ node_modules/
 error.js
 .vscode
 messages.db
+config.json

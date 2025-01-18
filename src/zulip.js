@@ -1,7 +1,8 @@
 import { zulip, discord } from './clients.js';
 import formatToDiscord from './formatter/zulipToDiscord.js';
+import { ignored_zulip_users } from './config.js';
 import { db, channelsTable, messagesTable } from './db.js';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 
 /** @type {Map<String, import('discord.js').Webhook>} */
 const webhookMap = new Map();
@@ -18,11 +19,39 @@ zulip.callOnEachEvent( async zulipEvent => {
 async function onZulipMessage( msg ) {
 	if ( msg.type !== 'stream' ) return;
 	if ( msg.sender_id === +process.env.ZULIP_ID ) return;
+	if ( ignored_zulip_users.includes( msg.sender_id ) ) return;
 
+	let threadName = null;
+	/** @type {null|import('discord.js').TextChannel} */
+	let parentChannel = null;
 	const discordChannels = await db.select().from(channelsTable).where(and(eq(channelsTable.zulipStream, msg.stream_id),eq(channelsTable.zulipSubject, msg.subject)));
-	if ( discordChannels.length === 0 ) return;
+	if ( discordChannels.length === 0 ) {
+		let parent = msg.subject.includes( '/' ) ? msg.subject.split('/')[0] : null;
+		const parentChannels = await db.select().from(channelsTable).where(and(
+			eq(channelsTable.zulipStream, msg.stream_id),
+			parent ? eq(channelsTable.zulipSubject, parent) : isNull(channelsTable.zulipSubject)
+		));
+		if ( parentChannels.length === 0 ) return;
+
+		if ( !parentChannels[0].includeThreads ) return;
+		threadName = msg.subject.includes( '/' ) ? msg.subject.split('/').slice(1).join('/') : msg.subject;
+		parentChannel = await discord.channels.fetch(parentChannels[0].discordChannelId);
+		if ( !parentChannel.isThreadOnly() ) {
+			let thread = await parentChannel.threads.create( {
+				name: threadName,
+				reason: 'New topic created on Zulip'
+			} );
+			await db.insert(channelsTable).values( {
+				zulipStream: msg.stream_id,
+				zulipSubject: msg.subject,
+				discordChannelId: thread.id
+			} );
+			parentChannel = thread;
+			threadName = null;
+		}
+	}
 	/** @type {import('discord.js').TextBasedChannel} */
-	const discordChannel = await discord.channels.fetch(discordChannels[0].discordChannelId);
+	const discordChannel = parentChannel || await discord.channels.fetch(discordChannels[0].discordChannelId);
 
 	let threadId = null;
 	/** @type {import('discord.js').BaseGuildTextChannel} */
@@ -39,7 +68,14 @@ async function onZulipMessage( msg ) {
 	}
 	let webhook = webhookMap.get( webhookChannel.id );
 
-	const discordMsg = await webhook.send( Object.assign( await formatToDiscord( msg ), { threadId } ) );
+	const discordMsg = await webhook.send( Object.assign( await formatToDiscord( msg ), { threadId, threadName } ) );
+	if ( threadName ) {
+		await db.insert(channelsTable).values( {
+			zulipStream: msg.stream_id,
+			zulipSubject: msg.subject,
+			discordChannelId: discordMsg.channelId
+		} );
+	}
 	await db.insert(messagesTable).values( {
 		discordMessageId: discordMsg.id,
 		discordChannelId: discordMsg.channelId,
@@ -53,6 +89,7 @@ async function onZulipMessage( msg ) {
 async function onZulipMessageUpdate( msg ) {
 	if ( msg.rendering_only ) return;
 	if ( msg.user_id === +process.env.ZULIP_ID ) return;
+	if ( ignored_zulip_users.includes( msg.user_id ) ) return;
 
 	if ( msg.orig_content === msg.content ) return;
 	
@@ -86,6 +123,8 @@ async function onZulipMessageUpdate( msg ) {
 }
 
 async function onZulipMessageDelete( msg ) {
+	if ( msg.message_type !== 'stream' ) return;
+
 	const discordMessages = await db.delete(messagesTable).where(eq(messagesTable.zulipMessageId, msg.message_id)).returning();
 
 	if ( discordMessages.length === 0 ) return;

@@ -1,5 +1,6 @@
 import { FormattingPatterns, MessageFlags, MessageReferenceType, MessageType } from 'discord.js';
 import { zulip } from '../clients.js';
+import { upload_files_to_zulip } from '../config.js';
 import { db, messagesTable } from '../db.js';
 import { eq } from 'drizzle-orm';
 
@@ -58,7 +59,7 @@ export default async function formatter( msg ) {
 				sourceLink = `[Message](${process.env.ZULIP_REALM}/#narrow/channel/${zulipMessages[0].zulipStream}/topic/${zulipMessages[0].zulipSubject}/near/${zulipMessages[0].zulipMessageId})`;
 			};
 			let text = sourceLink + ' forwarded by @\u200b' + msg.author.displayName + ':\n````quote\n';
-			text += ( snapshot.cleanContent || '' ) + msgAttachmentLinks( snapshot );
+			text += ( snapshot.cleanContent || '' ) + await msgAttachmentLinks( snapshot );
 			text += '\n````';
 			return text;
 		} ) ) ).join('\n') + ( msg.content.length || msg.attachments.size ? '\n' + message.content : '' );
@@ -76,7 +77,7 @@ export default async function formatter( msg ) {
 	} );
 
 	// File uploads
-	message.content += msgAttachmentLinks( msg );
+	message.content += await msgAttachmentLinks( msg );
 
 	return message;
 }
@@ -84,15 +85,19 @@ export default async function formatter( msg ) {
 /**
  * Recursively replace quote blocks
  * @param {import('discord.js').Message|import('discord.js').MessageSnapshot} msg 
- * @returns {String}
+ * @returns {Promise<String>}
  */
-function msgAttachmentLinks( msg ) {
+async function msgAttachmentLinks( msg ) {
 	if ( !msg.attachments.size ) return '';
 	let text = '';
 	if ( msg.content.length ) text += '\n';
-	text += msg.attachments.map( attachment => {
+	text += ( await Promise.all( msg.attachments.map( async attachment => {
 		let description = attachment.description ? attachment.description + ': ' : '';
-		return `[${description}${attachment.name}](${attachment.url})`;
-	} ).join('\n');
+		let url = attachment.url;
+		if ( upload_files_to_zulip ) {
+			// TODO: Upload files to Zulip
+		}
+		return `[${description}${attachment.name}](${url})`;
+	} ) ) ).join('\n');
 	return text;
 }

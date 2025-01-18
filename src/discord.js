@@ -1,12 +1,15 @@
 import { Events } from 'discord.js';
 import { zulip, discord } from './clients.js';
 import formatToZulip from './formatter/discordToZulip.js';
+import { ignored_discord_users } from './config.js';
 import { db, channelsTable, messagesTable } from './db.js';
 import { eq } from 'drizzle-orm';
 
 discord.on( Events.MessageCreate, async msg => {
 	if ( !msg.channel.isTextBased() || msg.system ) return;
 	if ( msg.applicationId === process.env.DISCORD_ID ) return;
+	if ( ignored_discord_users.includes( msg.author.id ) ) return;
+	if ( msg.applicationId && ignored_discord_users.includes( msg.applicationId ) ) return;
 
 	const zulipChannels = await db.select().from(channelsTable).where(eq(channelsTable.discordChannelId, msg.channelId));
 	if ( zulipChannels.length === 0 ) return;
@@ -30,6 +33,8 @@ discord.on( Events.MessageCreate, async msg => {
 discord.on( Events.MessageUpdate, async (oldmsg, msg) => {
 	if ( !msg.channel.isTextBased() || msg.system ) return;
 	if ( msg.applicationId === process.env.DISCORD_ID ) return;
+	if ( ignored_discord_users.includes( msg.author.id ) ) return;
+	if ( msg.applicationId && ignored_discord_users.includes( msg.applicationId ) ) return;
 
 	if ( oldmsg.content === msg.content ) return;
 
@@ -44,6 +49,8 @@ discord.on( Events.MessageUpdate, async (oldmsg, msg) => {
 
 discord.on( Events.MessageDelete, async msg => {
 	if ( !msg.channel.isTextBased() || msg.system ) return;
+	if ( ignored_discord_users.includes( msg.author.id ) ) return;
+	if ( msg.applicationId && ignored_discord_users.includes( msg.applicationId ) ) return;
 
 	const zulipMessages = await db.delete(messagesTable).where(eq(messagesTable.discordMessageId, msg.id)).returning();
 
@@ -56,6 +63,11 @@ discord.on( Events.MessageDelete, async msg => {
 
 discord.on( Events.ThreadCreate, async (thread, isNew) => {
 	if ( !isNew ) return;
+	if ( thread.ownerId === process.env.DISCORD_ID ) return;
+
+	let msg = await thread.fetchStarterMessage();
+
+	if ( msg.applicationId === process.env.DISCORD_ID ) return;
 
 	const channels = await db.select().from(channelsTable).where(eq(channelsTable.discordChannelId, thread.parentId));
 	if ( channels.length === 0 ) return;
@@ -63,11 +75,13 @@ discord.on( Events.ThreadCreate, async (thread, isNew) => {
 
 	const zulipChannels = await db.insert(channelsTable).values( {
 		zulipStream: channels[0].zulipStream,
-		zulipSubject: channels[0].zulipSubject + '/' + thread.name,
+		zulipSubject: ( channels[0].zulipSubject ? channels[0].zulipSubject + '/' : '' ) + thread.name,
 		discordChannelId: thread.id
 	} ).returning();
-
-	let msg = await thread.fetchStarterMessage();
+	
+	if ( msg.applicationId === process.env.DISCORD_ID ) return;
+	if ( ignored_discord_users.includes( msg.author.id ) ) return;
+	if ( msg.applicationId && ignored_discord_users.includes( msg.applicationId ) ) return;
 
 	const zulipMsg = await zulip.messages.send( Object.assign( await formatToZulip(msg), {
 		type: 'stream',
