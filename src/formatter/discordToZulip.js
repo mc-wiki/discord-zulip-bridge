@@ -44,8 +44,10 @@ export default async function formatter( msg ) {
 		let text = `> ${sourceLink} ${sourceUser}: `;
 		if ( discordMessage.attachments.size ) text += '🖼️ ';
 		if ( sourceContent ) {
-			text += sourceContent.replaceAll( '\n', ' ' ).slice(0, 100);
-			if ( sourceContent.length > 100 ) text += '…';
+			sourceContent = sourceContent.replace( /(?:@_\*\*[^\n|*]+\|\d+\*\* \[[^\n ]+\/near\/\d+\):\n)?(```+)quote\n(.*?)\n\1(?!`)\n?/gs, '' );
+			sourceContent = sourceContent.split('\n').filter( line => !line.startsWith('> ') ).join(' ');
+			text += sourceContent.slice(0, 200);
+			if ( sourceContent.length > 200 ) text += '…';
 		}
 		message.content = text + '\n\n' + message.content;
 	}
