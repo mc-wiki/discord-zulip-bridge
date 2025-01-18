@@ -153,7 +153,7 @@ async function onZulipCommand( msg ) {
 		zulipSubject,
 		discordChannelId,
 		includeThreads = 'true'
-	] = msg.content.match( /^!bridge #\*\*([^>*]+)>([^@*]+)\*\* (\d+)(?: (true|false))?/ )?.slice(1) ?? [];
+	] = msg.content.match( /^!bridge #\*\*([^>*]+)(?:>([^@*]+))?\*\* (\d+)(?: (true|false))?/ )?.slice(1) ?? [];
 
 	if ( !zulipStream || !discordChannelId ) {
 		return await zulip.messages.send( {
