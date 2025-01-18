@@ -1,4 +1,4 @@
-import { FormattingPatterns, MessageFlags, MessageReferenceType, MessageType } from 'discord.js';
+import { EmbedType, FormattingPatterns, MessageFlags, MessageReferenceType, MessageType } from 'discord.js';
 import { zulip } from '../clients.js';
 import { upload_files_to_zulip } from '../config.js';
 import { db, messagesTable } from '../db.js';
@@ -58,12 +58,17 @@ export default async function formatter( msg ) {
 			if ( zulipMessages.length > 0 ) {
 				sourceLink = `[Message](${process.env.ZULIP_REALM}/#narrow/channel/${zulipMessages[0].zulipStream}/topic/${zulipMessages[0].zulipSubject}/near/${zulipMessages[0].zulipMessageId})`;
 			};
-			let text = sourceLink + ' forwarded by @\u200b' + msg.member.displayName + ':\n````quote\n';
-			text += ( snapshot.cleanContent || '' ) + await msgAttachmentLinks( snapshot );
-			text += '\n````';
+			let text = sourceLink + ' forwarded by @\u200b' + msg.member.displayName + ':\n``````quote\n';
+			text += ( snapshot.cleanContent || '' );
+			text += msgEmbeds( msg );
+			text += await msgAttachmentLinks( snapshot );
+			text += '\n``````';
 			return text;
 		} ) ) ).join('\n') + ( msg.content.length || msg.attachments.size ? '\n' + message.content : '' );
 	}
+
+	// Discord embeds
+	message.content += msgEmbeds( msg );
 
 	// Message links
 
@@ -83,15 +88,13 @@ export default async function formatter( msg ) {
 }
 
 /**
- * Recursively replace quote blocks
+ * Convert Discord attachment links
  * @param {import('discord.js').Message|import('discord.js').MessageSnapshot} msg 
  * @returns {Promise<String>}
  */
 async function msgAttachmentLinks( msg ) {
 	if ( !msg.attachments.size ) return '';
-	let text = '';
-	if ( msg.content.length ) text += '\n';
-	text += ( await Promise.all( msg.attachments.map( async attachment => {
+	return '\n' + ( await Promise.all( msg.attachments.map( async attachment => {
 		let description = attachment.description ? attachment.description + ': ' : '';
 		let url = attachment.url;
 		if ( upload_files_to_zulip ) {
@@ -99,5 +102,59 @@ async function msgAttachmentLinks( msg ) {
 		}
 		return `[${description}${attachment.name}](${url})`;
 	} ) ) ).join('\n');
-	return text;
+}
+
+/**
+ * Convert Discord embeds
+ * @param {import('discord.js').Message|import('discord.js').MessageSnapshot} msg 
+ * @returns {String}
+ */
+function msgEmbeds( msg ) {
+	if ( !msg.embeds.filter( embed => embed.data.type === EmbedType.Rich ).length ) return '';
+	return '\n' + msg.embeds.filter( embed => embed.data.type === EmbedType.Rich ).map( msgRichEmbed ).join('\n');
+}
+
+/**
+ * Convert a Discord rich embed
+ * @param {import('discord.js').Embed} embed 
+ * @returns {String}
+ */
+function msgRichEmbed( embed ) {
+	if ( embed.data.type !== EmbedType.Rich ) return '';
+	let text = '';
+	if ( embed.author?.name ) {
+		let author = embed.author.name;
+		if ( embed.author.url ) author = `[${embed.author.name}](${embed.author.url})`;
+		text += `${author}:\n`;
+	}
+	if ( embed.title ) {
+		let title = embed.title;
+		if ( embed.url ) author = `[${embed.title}](${embed.url})`;
+		let thumbnail = '';
+		if ( embed.thumbnail?.url ) thumbnail = ` [thumbnail](${embed.thumbnail.url})`;
+		text += `**${title}**${thumbnail}\n`;
+	}
+	else if ( embed.thumbnail?.url ) {
+		text += `[thumbnail](${embed.thumbnail.url})\n`;
+	}
+	if ( embed.description ) {
+		text += `${embed.description}\n`;
+	}
+	if ( embed.fields.length ) {
+		text += embed.fields.map( ({name, value}) => {
+			return `- **${name}**\n` + '````quote\n' + value + '\n````';
+		} ).join('\n') + '\n';
+	}
+	if ( embed.image?.url ) {
+		text += `[image](${embed.image.url})\n`;
+	}
+	if ( embed.footer?.text ) {
+		let timestamp = '';
+		if ( embed.timestamp ) timestamp = ` • <time:${embed.timestamp}>`;
+		text += `${embed.footer.text}${timestamp}\n`;
+	}
+	else if ( embed.timestamp ) {
+		text += `<time:${embed.timestamp}>\n`;
+	}
+	return '`````quote\n' + text + '`````';
 }

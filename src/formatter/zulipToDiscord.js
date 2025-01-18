@@ -110,7 +110,7 @@ export default async function formatter( msg ) {
  * @returns {String}
  */
 function replaceQuote( src ) {
-	return src.replace( /(```+)quote\n(.*?)\n\1\n?/gs, (src, block, quote) => {
+	return src.replace( /(```+)quote\n(.*?)\n\1(?!`)\n?/gs, (src, block, quote) => {
 		if ( quote.includes( '```quote\n' ) ) quote = replaceQuote( quote );
 		return '> ' + quote.replaceAll( '\n', '\n> ' );
 	} );
