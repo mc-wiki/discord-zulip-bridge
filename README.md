@@ -10,7 +10,8 @@
   - [x] Message link
   - [x] Channel mention
   - [x] Discord message forwarding
-  - [x] Wildcard mention
+  - [x] Discord embeds
+  - [x] Escape wildcard mention
   - [x] Timestamp
   - [ ] File
   - [x] Silent mention
