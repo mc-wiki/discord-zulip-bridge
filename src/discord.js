@@ -6,7 +6,7 @@ import { db, channelsTable, messagesTable } from './db.js';
 import { eq } from 'drizzle-orm';
 
 discord.on( Events.MessageCreate, async msg => {
-	if ( !msg.channel.isTextBased() || msg.system ) return;
+	if ( !msg.guildId || !msg.channel.isTextBased() || msg.system ) return;
 	if ( msg.applicationId === process.env.DISCORD_ID ) return;
 	if ( ignored_discord_users.includes( msg.author.id ) ) return;
 	if ( msg.applicationId && ignored_discord_users.includes( msg.applicationId ) ) return;
@@ -31,7 +31,7 @@ discord.on( Events.MessageCreate, async msg => {
 } );
 
 discord.on( Events.MessageUpdate, async (oldmsg, msg) => {
-	if ( !msg.channel.isTextBased() || msg.system ) return;
+	if ( !msg.guildId || !msg.channel.isTextBased() || msg.system ) return;
 	if ( msg.applicationId === process.env.DISCORD_ID ) return;
 	if ( ignored_discord_users.includes( msg.author.id ) ) return;
 	if ( msg.applicationId && ignored_discord_users.includes( msg.applicationId ) ) return;
@@ -48,7 +48,7 @@ discord.on( Events.MessageUpdate, async (oldmsg, msg) => {
 } );
 
 discord.on( Events.MessageDelete, async msg => {
-	if ( !msg.channel.isTextBased() || msg.system ) return;
+	if ( !msg.guildId || !msg.channel.isTextBased() || msg.system ) return;
 	if ( ignored_discord_users.includes( msg.author.id ) ) return;
 	if ( msg.applicationId && ignored_discord_users.includes( msg.applicationId ) ) return;
 
