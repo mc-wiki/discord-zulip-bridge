@@ -65,9 +65,15 @@ discord.on( Events.ThreadCreate, async (thread, isNew) => {
 	if ( !isNew ) return;
 	if ( thread.ownerId === process.env.DISCORD_ID ) return;
 
-	let msg = await thread.fetchStarterMessage();
+	let msg = await thread.fetchStarterMessage().catch( error => {
+		if ( error?.code === 10008 ) return null;
+		throw error;
+	} );
 
+	if ( !msg ) return;
 	if ( msg.applicationId === process.env.DISCORD_ID ) return;
+	if ( ignored_discord_users.includes( msg.author.id ) ) return;
+	if ( msg.applicationId && ignored_discord_users.includes( msg.applicationId ) ) return;
 
 	const channels = await db.select().from(channelsTable).where(eq(channelsTable.discordChannelId, thread.parentId));
 	if ( channels.length === 0 ) return;
@@ -78,10 +84,6 @@ discord.on( Events.ThreadCreate, async (thread, isNew) => {
 		zulipSubject: ( channels[0].zulipSubject ? channels[0].zulipSubject + '/' : '' ) + thread.name,
 		discordChannelId: thread.id
 	} ).returning();
-	
-	if ( msg.applicationId === process.env.DISCORD_ID ) return;
-	if ( ignored_discord_users.includes( msg.author.id ) ) return;
-	if ( msg.applicationId && ignored_discord_users.includes( msg.applicationId ) ) return;
 
 	const zulipMsg = await zulip.messages.send( Object.assign( await formatToZulip(msg), {
 		type: 'stream',
