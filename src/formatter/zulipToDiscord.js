@@ -34,7 +34,7 @@ export default async function formatter( msg ) {
 	}
 
 	// Message links
-	const linkRegex = /\/#narrow\/channel\/([^\/\) ]+)\/topic\/([^\/\) ]+)\/near\/(\d+)/g;
+	const linkRegex = /\/#narrow\/(?:stream|channel)\/([^\/\) ]+)\/topic\/([^\/\) ]+)\/near\/(\d+)/g;
 	let linkMatch;
 	while ( ( linkMatch = linkRegex.exec( message.content ) ) !== null ) {
 		let [link, channel, topic, msgId] = linkMatch;
@@ -59,7 +59,7 @@ export default async function formatter( msg ) {
 	}
 
 	// Message mentions
-	const msgMentionRegex = /#\*\*([^>*]+)>([^@*]+)@(\d+)\*\*/g
+	const msgMentionRegex = /#\*\*([^>*]+)>([^@*]+)@(\d+)\*\*/g;
 	let msgMentionMatch;
 	while ( ( msgMentionMatch = msgMentionRegex.exec( message.content ) ) !== null ) {
 		let [link, channel, topic, msgId] = msgMentionMatch;
