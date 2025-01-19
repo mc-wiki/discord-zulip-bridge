@@ -36,7 +36,15 @@ async function onZulipMessage( msg ) {
 
 		if ( !parentChannels[0].includeThreads ) return;
 		threadName = msg.subject.includes( '/' ) ? msg.subject.split('/').slice(1).join('/') : msg.subject;
-		parentChannel = await discord.channels.fetch(parentChannels[0].discordChannelId);
+		parentChannel = await discord.channels.fetch(parentChannels[0].discordChannelId).catch( async error => {
+			if ( error?.code !== 10003 ) return console.error( error );
+	
+			await db.delete(channelsTable).where(eq(channelsTable.discordChannelId, parentChannels[0].discordChannelId));
+			await db.delete(messagesTable).where(eq(messagesTable.discordChannelId, parentChannels[0].discordChannelId));
+			console.log( `- Deleted connection between #${parentChannels[0].discordChannelId} and ${parentChannels[0].zulipStream}>${parentChannels[0].zulipSubject}` );
+			return null;
+		} );
+		if ( !parentChannel ) return;
 		if ( !parentChannel.isThreadOnly() ) {
 			let thread = await parentChannel.threads.create( {
 				name: threadName,
@@ -52,7 +60,15 @@ async function onZulipMessage( msg ) {
 		}
 	}
 	/** @type {import('discord.js').TextBasedChannel} */
-	const discordChannel = parentChannel || await discord.channels.fetch(discordChannels[0].discordChannelId);
+	const discordChannel = parentChannel || await discord.channels.fetch(discordChannels[0].discordChannelId).catch( async error => {
+		if ( error?.code !== 10003 ) return console.error( error );
+
+		await db.delete(channelsTable).where(eq(channelsTable.discordChannelId, discordChannels[0].discordChannelId));
+		await db.delete(messagesTable).where(eq(messagesTable.discordChannelId, discordChannels[0].discordChannelId));
+		console.log( `- Deleted connection between #${discordChannels[0].discordChannelId} and ${discordChannels[0].zulipStream}>${discordChannels[0].zulipSubject}` );
+		return null;
+	} );
+	if ( !discordChannel ) return;
 
 	let threadId = null;
 	/** @type {import('discord.js').BaseGuildTextChannel} */
@@ -99,7 +115,14 @@ async function onZulipMessageUpdate( msg ) {
 	if ( discordMessages.length === 0 ) return;
 	
 	/** @type {import('discord.js').TextBasedChannel} */
-	const discordChannel = await discord.channels.fetch(discordMessages[0].discordChannelId);
+	const discordChannel = await discord.channels.fetch(discordMessages[0].discordChannelId).catch( async error => {
+		if ( error?.code !== 10003 ) return console.error( error );
+
+		await db.delete(channelsTable).where(eq(channelsTable.discordChannelId, discordMessages[0].discordChannelId));
+		await db.delete(messagesTable).where(eq(messagesTable.discordChannelId, discordMessages[0].discordChannelId));
+		console.log( `- Deleted connection between #${discordMessages[0].discordChannelId} and ${discordMessages[0].zulipStream}>${discordMessages[0].zulipSubject}` );
+		return null;
+	} );
 
 	if ( !discordChannel ) return;
 
@@ -131,7 +154,14 @@ async function onZulipMessageDelete( msg ) {
 	if ( discordMessages.length === 0 ) return;
 	
 	/** @type {import('discord.js').TextBasedChannel} */
-	const discordChannel = await discord.channels.fetch(discordMessages[0].discordChannelId);
+	const discordChannel = await discord.channels.fetch(discordMessages[0].discordChannelId).catch( async error => {
+		if ( error?.code !== 10003 ) return console.error( error );
+
+		await db.delete(channelsTable).where(eq(channelsTable.discordChannelId, discordMessages[0].discordChannelId));
+		await db.delete(messagesTable).where(eq(messagesTable.discordChannelId, discordMessages[0].discordChannelId));
+		console.log( `- Deleted connection between #${discordMessages[0].discordChannelId} and ${discordMessages[0].zulipStream}>${discordMessages[0].zulipSubject}` );
+		return null;
+	} );
 
 	if ( !discordChannel ) return;
 

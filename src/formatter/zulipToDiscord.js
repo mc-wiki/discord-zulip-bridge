@@ -1,7 +1,7 @@
 import * as url_template_lib from 'url-template';
 import { messageLink } from 'discord.js';
 import { zulip, discord } from '../clients.js';
-import { db, messagesTable } from '../db.js';
+import { db, messagesTable, channelsTable } from '../db.js';
 import { eq } from 'drizzle-orm';
 
 /** @type {Map<RegExp, {url_template: url_template_lib.Template; group_number_to_name: Record<number, string>}>} */
@@ -43,7 +43,14 @@ export default async function formatter( msg ) {
 		let replacement = `](<${process.env.ZULIP_REALM}${link}>)`;
 		if ( discordMessages.length > 0 ) {
 			/** @type {import('discord.js').GuildChannel} */
-			const discordChannel = await discord.channels.fetch(discordMessages[0].discordChannelId);
+			const discordChannel = await discord.channels.fetch(discordMessages[0].discordChannelId).catch( async error => {
+				if ( error?.code !== 10003 ) return console.error( error );
+		
+				await db.delete(channelsTable).where(eq(channelsTable.discordChannelId, discordMessages[0].discordChannelId));
+				await db.delete(messagesTable).where(eq(messagesTable.discordChannelId, discordMessages[0].discordChannelId));
+				console.log( `- Deleted connection between #${discordMessages[0].discordChannelId} and ${discordMessages[0].zulipStream}>${discordMessages[0].zulipSubject}` );
+				return null;
+			} );
 			if ( discordChannel ) {
 				replacement = `](<${messageLink(discordChannel.id, discordMessages[0].discordMessageId, discordChannel.guildId)}>)`;
 			}
@@ -61,7 +68,14 @@ export default async function formatter( msg ) {
 		let replacement = `**[#${channel}>${topic}@${msgId}](<${process.env.ZULIP_REALM}/#narrow/channel/${encodeURIComponent(channel)}/topic/${encodeURIComponent(topic)}/near/${msgId}>)**`;
 		if ( discordMessages.length > 0 ) {
 			/** @type {import('discord.js').GuildChannel} */
-			const discordChannel = await discord.channels.fetch(discordMessages[0].discordChannelId);
+			const discordChannel = await discord.channels.fetch(discordMessages[0].discordChannelId).catch( async error => {
+				if ( error?.code !== 10003 ) return console.error( error );
+		
+				await db.delete(channelsTable).where(eq(channelsTable.discordChannelId, discordMessages[0].discordChannelId));
+				await db.delete(messagesTable).where(eq(messagesTable.discordChannelId, discordMessages[0].discordChannelId));
+				console.log( `- Deleted connection between #${discordMessages[0].discordChannelId} and ${discordMessages[0].zulipStream}>${discordMessages[0].zulipSubject}` );
+				return null;
+			} );
 			if ( discordChannel ) {
 				replacement = messageLink(discordChannel.id, discordMessages[0].discordMessageId, discordChannel.guildId);
 			}
