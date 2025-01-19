@@ -102,7 +102,7 @@ discord.on( Events.ChannelDelete, async channel => {
 
 	if ( zulipChannels.length === 0 ) return;
 
-	await db.delete(messagesTable).where(eq(messagesTable.discordChannelId, channel.id)).returning();
+	await db.delete(messagesTable).where(eq(messagesTable.discordChannelId, channel.id));
 	console.log( `- Deleted connection between #${channel.name} and ${zulipChannels[0].zulipStream}>${zulipChannels[0].zulipSubject}` );
 } );
 
@@ -111,7 +111,8 @@ discord.on( Events.ThreadDelete, async thread => {
 
 	if ( zulipChannels.length === 0 ) return;
 
-	await db.delete(messagesTable).where(eq(messagesTable.discordChannelId, thread.id)).returning();
+	await db.delete(messagesTable).where(eq(messagesTable.discordChannelId, thread.id));
+	console.log( `- Deleted connection between #${thread.name} and ${zulipChannels[0].zulipStream}>${zulipChannels[0].zulipSubject}` );
 } );
 
 discord.on( Events.GuildCreate, guild => {
