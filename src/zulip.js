@@ -26,6 +26,7 @@ async function onZulipMessage( msg ) {
 	let parentChannel = null;
 	const discordChannels = await db.select().from(channelsTable).where(and(eq(channelsTable.zulipStream, msg.stream_id),eq(channelsTable.zulipSubject, msg.subject)));
 	if ( discordChannels.length === 0 ) {
+		if ( msg.subject.startsWith( '✔ ' ) ) return;
 		let parent = msg.subject.includes( '/' ) ? msg.subject.split('/')[0] : null;
 		const parentChannels = await db.select().from(channelsTable).where(and(
 			eq(channelsTable.zulipStream, msg.stream_id),

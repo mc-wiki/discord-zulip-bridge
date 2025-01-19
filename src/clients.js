@@ -23,9 +23,8 @@ export const discord = new Discord.Client( {
 		status: Discord.PresenceUpdateStatus.Online,
 		activities: [
 			{
-				type: Discord.ActivityType.Competing,
-				name: 'KEKSE',
-				state: 'I LOVE COOKIES!!!'
+				type: Discord.ActivityType.Custom,
+				name: process.env.ZULIP_REALM,
 			}
 		]
 	},
@@ -33,10 +32,10 @@ export const discord = new Discord.Client( {
 		Discord.GatewayIntentBits.Guilds,
 		Discord.GatewayIntentBits.GuildMessages,
 		Discord.GatewayIntentBits.GuildMessageReactions,
-		Discord.GatewayIntentBits.GuildMembers,
-		Discord.GatewayIntentBits.GuildModeration,
-		Discord.GatewayIntentBits.DirectMessages,
 		Discord.GatewayIntentBits.MessageContent
+	],
+	partials: [
+		Discord.Partials.Message
 	]
 } );
 

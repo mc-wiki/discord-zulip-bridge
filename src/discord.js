@@ -36,7 +36,7 @@ discord.on( Events.MessageUpdate, async (oldmsg, msg) => {
 	if ( ignored_discord_users.includes( msg.author.id ) ) return;
 	if ( msg.applicationId && ignored_discord_users.includes( msg.applicationId ) ) return;
 
-	if ( oldmsg.content === msg.content ) return;
+	if ( !oldmsg.partial && oldmsg.content === msg.content ) return;
 
 	const zulipMessages = await db.select().from(messagesTable).where(eq(messagesTable.discordMessageId, msg.id));
 
@@ -48,10 +48,6 @@ discord.on( Events.MessageUpdate, async (oldmsg, msg) => {
 } );
 
 discord.on( Events.MessageDelete, async msg => {
-	if ( !msg.guildId || !msg.channel.isTextBased() || msg.system ) return;
-	if ( ignored_discord_users.includes( msg.author.id ) ) return;
-	if ( msg.applicationId && ignored_discord_users.includes( msg.applicationId ) ) return;
-
 	const zulipMessages = await db.delete(messagesTable).where(eq(messagesTable.discordMessageId, msg.id)).returning();
 
 	if ( zulipMessages.length === 0 ) return;
@@ -99,6 +95,23 @@ discord.on( Events.ThreadCreate, async (thread, isNew) => {
 		zulipSubject: zulipChannels[0].zulipSubject,
 		source: 'discord',
 	} );
+} );
+
+discord.on( Events.ChannelDelete, async channel => {
+	const zulipChannels = await db.delete(channelsTable).where(eq(channelsTable.discordChannelId, channel.id)).returning();
+
+	if ( zulipChannels.length === 0 ) return;
+
+	await db.delete(messagesTable).where(eq(messagesTable.discordChannelId, channel.id)).returning();
+	console.log( `- Deleted connection between #${channel.name} and ${zulipChannels[0].zulipStream}>${zulipChannels[0].zulipSubject}` );
+} );
+
+discord.on( Events.ThreadDelete, async thread => {
+	const zulipChannels = await db.delete(channelsTable).where(eq(channelsTable.discordChannelId, thread.id)).returning();
+
+	if ( zulipChannels.length === 0 ) return;
+
+	await db.delete(messagesTable).where(eq(messagesTable.discordChannelId, thread.id)).returning();
 } );
 
 discord.on( Events.GuildCreate, guild => {
