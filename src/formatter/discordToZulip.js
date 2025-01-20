@@ -1,4 +1,4 @@
-import { cleanContent, channelLink, EmbedType, FormattingPatterns, MessageFlags, MessageReferenceType, MessageType } from 'discord.js';
+import { cleanContent, channelLink, EmbedType, FormattingPatterns, MessageFlags, MessageReferenceType, MessageType, StickerFormatType } from 'discord.js';
 import { zulip } from '../clients.js';
 import { upload_files_to_zulip } from '../config.js';
 import { db, messagesTable, channelsTable } from '../db.js';
@@ -62,7 +62,8 @@ export default async function formatter( msg ) {
 			};
 			let text = sourceLink + ' forwarded by @\u200b' + ( msg.member || msg.author ).displayName + ':\n``````quote\n';
 			text += await msgCleanContent( snapshot );
-			text += msgEmbeds( msg );
+			text += msgEmbeds( snapshot );
+			text += await msgStickerLinks( snapshot );
 			text += await msgAttachmentLinks( snapshot );
 			text += '\n``````';
 			return text;
@@ -100,6 +101,9 @@ export default async function formatter( msg ) {
 	message.content = message.content.replace( new RegExp(FormattingPatterns.Timestamp, 'g'), (src, time) => {
 		return `<time:${new Date( +(time + '000') ).toISOString()}>`;
 	} );
+
+	// Stickers
+	message.content += await msgStickerLinks( msg );
 
 	// File uploads
 	message.content += await msgAttachmentLinks( msg );
@@ -161,6 +165,25 @@ async function msgAttachmentLinks( msg ) {
 			// TODO: Upload files to Zulip
 		}
 		return `[${description}${attachment.name}](${url})`;
+	} ) ) ).join('\n');
+}
+
+/**
+ * Convert Discord stickers
+ * @param {import('discord.js').Message|import('discord.js').MessageSnapshot} msg 
+ * @returns {Promise<String>}
+ */
+async function msgStickerLinks( msg ) {
+	if ( !msg.stickers.size ) return '';
+	return '\n' + ( await Promise.all( msg.stickers.map( async sticker => {
+		let text = `Sticker: ${sticker.name}` + ( sticker.description ? ` - ${sticker.description}` : '' );
+		if ( sticker.format !== StickerFormatType.Lottie ) {
+			text = `[${text}](${sticker.url})`
+		}
+		if ( upload_files_to_zulip ) {
+			// TODO: Upload files to Zulip
+		}
+		return text;
 	} ) ) ).join('\n');
 }
 
