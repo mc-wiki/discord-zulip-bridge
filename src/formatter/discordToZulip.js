@@ -128,7 +128,7 @@ async function msgCleanContent( msg ) {
 		const discordChannel = msg.client.channels.cache.get(id);
 		const zulipChannels = await db.select().from(channelsTable).where(eq(channelsTable.discordChannelId, id));
 		let replacement = mention;
-		if ( discordChannel?.guildId ) replacement = `[${mention}](${channelLink(id, discordChannel.guildId)})`;
+		if ( discordChannel?.guildId ) replacement = `**[${mention}](${channelLink(id, discordChannel.guildId)})**`;
 		if ( zulipChannels.length > 0 ) {
 			const zulipChannel = await zulip.callEndpoint(`/streams/${zulipChannels[0].zulipStream}`);
 			if ( zulipChannel?.result === 'success' ) {
