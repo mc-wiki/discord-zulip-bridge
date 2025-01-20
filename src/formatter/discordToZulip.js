@@ -1,7 +1,7 @@
-import { EmbedType, FormattingPatterns, MessageFlags, MessageReferenceType, MessageType } from 'discord.js';
+import { cleanContent, channelLink, EmbedType, FormattingPatterns, MessageFlags, MessageReferenceType, MessageType } from 'discord.js';
 import { zulip } from '../clients.js';
 import { upload_files_to_zulip } from '../config.js';
-import { db, messagesTable } from '../db.js';
+import { db, messagesTable, channelsTable } from '../db.js';
 import { eq } from 'drizzle-orm';
 
 /**
@@ -12,7 +12,7 @@ import { eq } from 'drizzle-orm';
 export default async function formatter( msg ) {
 	/** @type {{content: String}} */
 	let message = {
-		content: '@\u200b' + ( msg.member || msg.author ).displayName + ': ' + msg.cleanContent,
+		content: '@\u200b' + ( msg.member || msg.author ).displayName + ': ' + await msgCleanContent( msg ),
 	};
 
 	// Loading bot response
@@ -27,7 +27,7 @@ export default async function formatter( msg ) {
 		const zulipMessages = await db.select().from(messagesTable).where(eq(messagesTable.discordMessageId, discordMessage.id));
 		let sourceLink = 'Reply to';
 		let sourceUser = '@\u200b' + ( discordMessage.member || discordMessage.author ).displayName;
-		let sourceContent = discordMessage.cleanContent;
+		let sourceContent = await msgCleanContent( discordMessage );
 		if ( zulipMessages.length > 0 ) {
 			sourceLink = `[Reply to](${process.env.ZULIP_REALM}/#narrow/channel/${zulipMessages[0].zulipStream}/topic/${encodeURIComponent(zulipMessages[0].zulipSubject)}/near/${zulipMessages[0].zulipMessageId})`;
 			if ( zulipMessages[0].source === 'zulip' ) {
@@ -61,7 +61,7 @@ export default async function formatter( msg ) {
 				sourceLink = `[Message](${process.env.ZULIP_REALM}/#narrow/channel/${zulipMessages[0].zulipStream}/topic/${zulipMessages[0].zulipSubject}/near/${zulipMessages[0].zulipMessageId})`;
 			};
 			let text = sourceLink + ' forwarded by @\u200b' + ( msg.member || msg.author ).displayName + ':\n``````quote\n';
-			text += ( snapshot.cleanContent || '' );
+			text += await msgCleanContent( snapshot );
 			text += msgEmbeds( msg );
 			text += await msgAttachmentLinks( snapshot );
 			text += '\n``````';
@@ -73,7 +73,28 @@ export default async function formatter( msg ) {
 	message.content += msgEmbeds( msg );
 
 	// Message links
+	const linkRegex = /(\]\()?<?https:\/\/(?:canary\.|ptb\.)?discord\.com\/channels\/(\d+)\/(\d+)\/(\d+)>?(\))?/g;
+	let linkMatch;
+	while ( ( linkMatch = linkRegex.exec( message.content ) ) !== null ) {
+		let [link, prefix, guildId, channelId, msgId, suffix] = linkMatch;
 
+		const zulipMessages = await db.select().from(messagesTable).where(eq(messagesTable.discordMessageId, msgId));
+		if ( zulipMessages.length === 0 ) continue;
+		let replacement = `${prefix}${process.env.ZULIP_REALM}/#narrow/channel/${zulipMessages[0].zulipStream}/topic/${encodeURIComponent(zulipMessages[0].zulipSubject)}/near/${zulipMessages[0].zulipMessageId}${suffix}`;
+		if ( !prefix && !suffix ) {
+			const zulipChannel = await zulip.callEndpoint(`/streams/${zulipMessages[0].zulipStream}`);
+			if ( zulipChannel?.result === 'success' ) {
+				replacement = `#**${zulipChannel.stream.name}>${zulipMessages[0].zulipSubject}@${zulipMessages[0].zulipMessageId}**`;
+			}
+			else if ( zulipChannel?.msg === 'Invalid channel ID' ) {
+				await db.delete(channelsTable).where(eq(channelsTable.zulipStream, zulipMessages[0].zulipStream));
+				await db.delete(messagesTable).where(eq(messagesTable.zulipStream, zulipMessages[0].zulipStream));
+				console.log( `- Deleted connection between #${zulipMessages[0].discordChannelId} and ${zulipMessages[0].zulipStream}>${zulipMessages[0].zulipSubject}` );
+				continue;
+			}
+		}
+		message.content = message.content.replaceAll( link, replacement );
+	}
 
 	// Timestamps
 	message.content = message.content.replace( new RegExp(FormattingPatterns.Timestamp, 'g'), (src, time) => {
@@ -87,6 +108,43 @@ export default async function formatter( msg ) {
 	message.content = message.content.replace( /@\*\*(all|everyone|channel|topic)\*\*/g, '@\u200b**$1**' );
 
 	return message;
+}
+
+/**
+ * Return Discord message content with all mentions teplaced
+ * @param {import('discord.js').Message|import('discord.js').MessageSnapshot} msg 
+ * @returns {Promise<String>}
+ */
+async function msgCleanContent( msg ) {
+	let content = msg.content || '';
+	if ( !content.includes( '<' ) ) return content;
+
+	// Channel mentions
+	const regex = new RegExp(FormattingPatterns.Channel, 'g');
+	let match;
+	while ( ( match = regex.exec( content ) ) !== null ) {
+		let [mention, id] = match;
+
+		const discordChannel = msg.client.channels.cache.get(id);
+		const zulipChannels = await db.select().from(channelsTable).where(eq(channelsTable.discordChannelId, id));
+		let replacement = mention;
+		if ( discordChannel?.guildId ) replacement = `[${mention}](${channelLink(id, discordChannel.guildId)})`;
+		if ( zulipChannels.length > 0 ) {
+			const zulipChannel = await zulip.callEndpoint(`/streams/${zulipChannels[0].zulipStream}`);
+			if ( zulipChannel?.result === 'success' ) {
+				if ( !zulipChannels[0].zulipSubject ) replacement = `#**${zulipChannel.stream.name}**`;
+				else replacement = `#**${zulipChannel.stream.name}>${zulipChannels[0].zulipSubject}**`;
+			}
+			else if ( zulipChannel?.msg === 'Invalid channel ID' ) {
+				await db.delete(channelsTable).where(eq(channelsTable.zulipStream, zulipChannels[0].zulipStream));
+				await db.delete(messagesTable).where(eq(messagesTable.zulipStream, zulipChannels[0].zulipStream));
+				console.log( `- Deleted connection between #${zulipChannels[0].discordChannelId} and ${zulipChannels[0].zulipStream}>${zulipChannels[0].zulipSubject}` );
+			}
+		}
+		content = content.replaceAll( mention, replacement );
+	}
+
+	return cleanContent( content, msg.channel );
 }
 
 /**

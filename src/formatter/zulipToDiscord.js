@@ -2,7 +2,7 @@ import * as url_template_lib from 'url-template';
 import { messageLink } from 'discord.js';
 import { zulip, discord } from '../clients.js';
 import { db, messagesTable, channelsTable } from '../db.js';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 
 /** @type {Map<RegExp, {url_template: url_template_lib.Template; group_number_to_name: Record<number, string>}>} */
 const linkifier_map = new Map();
@@ -62,7 +62,7 @@ export default async function formatter( msg ) {
 	const msgMentionRegex = /#\*\*([^>*]+)>([^@*]+)@(\d+)\*\*/g;
 	let msgMentionMatch;
 	while ( ( msgMentionMatch = msgMentionRegex.exec( message.content ) ) !== null ) {
-		let [link, channel, topic, msgId] = msgMentionMatch;
+		let [mention, channel, topic, msgId] = msgMentionMatch;
 
 		const discordMessages = await db.select().from(messagesTable).where(eq(messagesTable.zulipMessageId, msgId));
 		let replacement = `**[#${channel}>${topic}@${msgId}](<${process.env.ZULIP_REALM}/#narrow/channel/${encodeURIComponent(channel)}/topic/${encodeURIComponent(topic)}/near/${msgId}>)**`;
@@ -80,7 +80,39 @@ export default async function formatter( msg ) {
 				replacement = messageLink(discordChannel.id, discordMessages[0].discordMessageId, discordChannel.guildId);
 			}
 		}
-		message.content = message.content.replaceAll( link, replacement );
+		message.content = message.content.replaceAll( mention, replacement );
+	}
+
+	// Topic mentions
+	const topicMentionRegex = /#\*\*([^>*]+)>([^@*]+)\*\*/g;
+	let topicMentionMatch;
+	while ( ( topicMentionMatch = topicMentionRegex.exec( message.content ) ) !== null ) {
+		let [mention, channel, topic] = topicMentionMatch;
+
+		const zulipStream = ( await zulip.streams.getStreamId( channel ) ).stream_id;
+		if ( !zulipStream ) continue;
+		const discordChannels = await db.select().from(channelsTable).where(and(eq(channelsTable.zulipStream, zulipStream),eq(channelsTable.zulipSubject, topic)));
+		let replacement = `**[#${channel}>${topic}](<${process.env.ZULIP_REALM}/#narrow/channel/${encodeURIComponent(channel)}/topic/${encodeURIComponent(topic)}>)**`;
+		if ( discordChannels.length > 0 ) {
+			replacement = `<#${discordChannels[0].discordChannelId}>`;
+		}
+		message.content = message.content.replaceAll( mention, replacement );
+	}
+
+	// Channel mentions
+	const channelMentionRegex = /#\*\*([^>*]+)\*\*/g;
+	let channelMentionMatch;
+	while ( ( channelMentionMatch = channelMentionRegex.exec( message.content ) ) !== null ) {
+		let [mention, channel] = channelMentionMatch;
+
+		const zulipStream = ( await zulip.streams.getStreamId( channel ) ).stream_id;
+		if ( !zulipStream ) continue;
+		const discordChannels = await db.select().from(channelsTable).where(and(eq(channelsTable.zulipStream, zulipStream),isNull(channelsTable.zulipSubject)));
+		let replacement = `**[#${channel}](<${process.env.ZULIP_REALM}/#narrow/channel/${encodeURIComponent(channel)}>)**`;
+		if ( discordChannels.length > 0 ) {
+			replacement = `<#${discordChannels[0].discordChannelId}>`;
+		}
+		message.content = message.content.replaceAll( mention, replacement );
 	}
 
 	// File uploads
