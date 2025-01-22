@@ -1,6 +1,7 @@
 import * as url_template_lib from 'url-template';
 import { messageLink } from 'discord.js';
 import { zulip, discord } from '../clients.js';
+import { mentionable_discord_roles } from '../config.js';
 import { db, messagesTable, channelsTable } from '../db.js';
 import { and, eq, isNull } from 'drizzle-orm';
 
@@ -18,15 +19,30 @@ zulip.callEndpoint('/realm/linkifiers').then( result => {
  * @param {String} msg.avatar_url
  * @param {String} msg.content
  * @param {Boolean} msg.is_me_message
+ * @param {Object} msgData
+ * @param {Number} msgData.zulipMessageId
+ * @param {Number} msgData.zulipStream
+ * @param {String} msgData.zulipSubject
+ * @param {import('discord.js').GuildTextBasedChannel} msgData.discordChannel
  * @returns {Promise<import('discord.js').WebhookMessageCreateOptions>}
  */
-export default async function formatter( msg ) {
+export default async function formatter( msg, msgData ) {
 	/** @type {import('discord.js').WebhookMessageCreateOptions} */
 	let message = {
 		username: msg.sender_full_name,
 		avatarURL: msg.avatar_url,
 		content: ( msg.is_me_message ? '_' + msg.content.replace( /^\/me /, '' ) + '_' : msg.content ),
 	};
+
+	// Discord role mentions
+	if ( mentionable_discord_roles.length ) {
+		let roles = msgData.discordChannel.guild.roles.cache.filter( role => mentionable_discord_roles.includes( role.id ) );
+		let contentWithoutQuotes = message.content.replace( /(```+)quote\n(.*?)\n\1(?!`)\n*/gs, '' );
+		roles.forEach( role => {
+			if ( !contentWithoutQuotes.includes( `@*${role.name}*` ) ) return;
+			message.content = message.content.replaceAll( `@*${role.name}*`, role.toString() );
+		} );
+	}
 
 	// Silent mentions
 	if ( message.content.includes( '@_' ) ) {
@@ -115,6 +131,9 @@ export default async function formatter( msg ) {
 		message.content = message.content.replaceAll( mention, replacement );
 	}
 
+	// User mentions
+	message.content = message.content.replace( /@\*\*([^|*]+)\|\d+\*\*/g, '@**$1**' );
+
 	// File uploads
 	if ( message.content.includes( '](/user_uploads/' ) ) {
 		message.content = message.content.replaceAll( '](/user_uploads/', `](${process.env.ZULIP_REALM}/user_uploads/` );
@@ -147,6 +166,26 @@ export default async function formatter( msg ) {
 		});
 	});
 
+	if ( message.content.length > 2_000 ) {
+		let lines = message.content.split('\n');
+		// Remove stacked quotes
+		lines = lines.filter( line => !line.startsWith( '> >' ) );
+		if ( lines.reduce( (length, line) => length + line.length, 0 ) > 2_000 ) {
+			// Remove all quotes
+			lines = lines.filter( line => !line.startsWith( '> ' ) );
+			if ( lines.reduce( (length, line) => length + line.length, 0 ) > 2_000 ) {
+				let msgLink = `[[…]](<${process.env.ZULIP_REALM}/#narrow/channel/${msgData.zulipStream}/topic/${encodeURIComponent(msgData.zulipSubject)}/near/${msgData.zulipMessageId}>)`;
+				let length = msgLink.length + 1;
+				if ( lines[0].length + length >= 2_000 ) lines = [ lines[0].slice(0, 2_000 - length ) + ' ' + msgLink ];
+				else {
+					lines = lines.filter( line => ( length += line.length + 1 ) <= 2_000 );
+					lines.push( msgLink );
+				}
+			}
+		}
+		message.content = lines.join('\n');
+	}
+
 	return message;
 }
 
@@ -157,6 +196,10 @@ export default async function formatter( msg ) {
  */
 function replaceQuote( src ) {
 	return src.replace( /(```+)quote\n(.*?)\n\1(?!`)\n*/gs, (src, block, quote) => {
+		quote = quote.replace( /(<)?\b(https?:\/\/[^\s<>]+[^\s"'),.:;<>\]])(>)?/g, (link, prefix, url, suffix) => {
+			if ( prefix && suffix ) return link;
+			return `<${url}>`;
+		} );
 		if ( quote.includes( '```quote\n' ) ) quote = replaceQuote( quote );
 		return '> ' + quote.replaceAll( '\n', '\n> ' ) + '\n';
 	} );

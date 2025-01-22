@@ -14,7 +14,7 @@ discord.on( Events.MessageCreate, async msg => {
 	const zulipChannels = await db.select().from(channelsTable).where(eq(channelsTable.discordChannelId, msg.channelId));
 	if ( zulipChannels.length === 0 ) return;
 
-	const zulipMsg = await zulip.messages.send( Object.assign( await formatToZulip(msg), {
+	const zulipMsg = await zulip.messages.send( Object.assign( await formatToZulip( msg ), {
 		type: 'stream',
 		to: zulipChannels[0].zulipStream,
 		topic: zulipChannels[0].zulipSubject,

@@ -1,6 +1,6 @@
 import { cleanContent, channelLink, EmbedType, FormattingPatterns, MessageFlags, MessageReferenceType, MessageType, StickerFormatType } from 'discord.js';
 import { zulip } from '../clients.js';
-import { upload_files_to_zulip } from '../config.js';
+import { mentionable_zulip_groups, upload_files_to_zulip } from '../config.js';
 import { db, messagesTable, channelsTable } from '../db.js';
 import { eq } from 'drizzle-orm';
 
@@ -108,8 +108,15 @@ export default async function formatter( msg ) {
 	// File uploads
 	message.content += await msgAttachmentLinks( msg );
 
+	// User group mentions
+	message.content = message.content.replace( /@\*([^*]+)\*/g, (src, group) => {
+		if ( group.startsWith( 'role:' ) ) return `@_*${group}*`;
+		if ( mentionable_zulip_groups.includes( group ) ) return src;
+		return `@_*${group}*`;
+	} );
+
 	// Wildcard mentions
-	message.content = message.content.replace( /@\*\*(all|everyone|channel|topic)\*\*/g, '@\u200b**$1**' );
+	message.content = message.content.replace( /@\*\*(all|everyone|channel|topic)\*\*/g, '@_**$1**' );
 
 	return message;
 }

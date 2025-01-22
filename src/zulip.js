@@ -59,7 +59,7 @@ async function onZulipMessage( msg ) {
 			threadName = null;
 		}
 	}
-	/** @type {import('discord.js').TextBasedChannel} */
+	/** @type {import('discord.js').GuildTextBasedChannel} */
 	const discordChannel = parentChannel || await discord.channels.fetch(discordChannels[0].discordChannelId).catch( async error => {
 		if ( error?.code !== 10003 ) return console.error( error );
 
@@ -85,7 +85,12 @@ async function onZulipMessage( msg ) {
 	}
 	let webhook = webhookMap.get( webhookChannel.id );
 
-	const discordMsg = await webhook.send( Object.assign( await formatToDiscord( msg ), { threadId, threadName } ) );
+	const discordMsg = await webhook.send( Object.assign( await formatToDiscord( msg, {
+		zulipMessageId: msg.id,
+		zulipStream: msg.stream_id,
+		zulipSubject: msg.subject,
+		discordChannel
+	} ), { threadId, threadName } ) );
 	if ( threadName ) {
 		await db.insert(channelsTable).values( {
 			zulipStream: msg.stream_id,
@@ -114,7 +119,7 @@ async function onZulipMessageUpdate( msg ) {
 
 	if ( discordMessages.length === 0 ) return;
 	
-	/** @type {import('discord.js').TextBasedChannel} */
+	/** @type {import('discord.js').GuildTextBasedChannel} */
 	const discordChannel = await discord.channels.fetch(discordMessages[0].discordChannelId).catch( async error => {
 		if ( error?.code !== 10003 ) return console.error( error );
 
@@ -142,7 +147,12 @@ async function onZulipMessageUpdate( msg ) {
 	let webhook = webhookMap.get( webhookChannel.id );
 
 	await webhook.editMessage( discordMessages[0].discordMessageId, { threadId,
-		content: ( await formatToDiscord( msg ) ).content
+		content: ( await formatToDiscord( msg, {
+			zulipMessageId: msg.message_id,
+			zulipStream: discordMessages[0].zulipStream,
+			zulipSubject: discordMessages[0].zulipSubject,
+			discordChannel
+		} ) ).content
 	} );
 }
 

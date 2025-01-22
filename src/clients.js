@@ -1,5 +1,6 @@
 import * as Discord from 'discord.js';
 import zulipInit from 'zulip-js';
+import { mentionable_discord_roles } from './config.js';
 
 globalThis.isDebug = ( process.argv[2] === 'debug' );
 
@@ -16,6 +17,7 @@ export const discord = new Discord.Client( {
 	} ),
 	allowedMentions: {
 		parse: ['users'],
+		roles: mentionable_discord_roles,
 		repliedUser: true
 	},
 	failIfNotExists: false,
