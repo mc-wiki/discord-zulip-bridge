@@ -36,7 +36,7 @@ discord.on( Events.MessageUpdate, async (oldmsg, msg) => {
 	if ( ignored_discord_users.includes( msg.author.id ) ) return;
 	if ( msg.applicationId && ignored_discord_users.includes( msg.applicationId ) ) return;
 
-	if ( !oldmsg.partial && oldmsg.content === msg.content ) return;
+	if ( !oldmsg.partial && msg.equals( oldmsg ) ) return;
 
 	const zulipMessages = await db.select().from(messagesTable).where(eq(messagesTable.discordMessageId, msg.id));
 

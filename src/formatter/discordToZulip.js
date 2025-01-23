@@ -212,6 +212,7 @@ function msgEmbeds( msg ) {
 function msgRichEmbed( embed ) {
 	if ( embed.data.type !== EmbedType.Rich ) return '';
 	let text = '';
+	let images = [];
 	if ( embed.author?.name ) {
 		let author = embed.author.name;
 		if ( embed.author.url ) author = `[${embed.author.name}](${embed.author.url})`;
@@ -221,11 +222,15 @@ function msgRichEmbed( embed ) {
 		let title = embed.title;
 		if ( embed.url ) title = `[${embed.title}](${embed.url})`;
 		let thumbnail = '';
-		if ( embed.thumbnail?.url ) thumbnail = ` [thumbnail](${embed.thumbnail.url})`;
+		if ( embed.thumbnail?.url ) {
+			thumbnail = ` [thumbnail](${embed.thumbnail.url})`;
+			images.push( `[^](${embed.thumbnail.url})` );
+		}
 		text += `**${title}**${thumbnail}\n`;
 	}
 	else if ( embed.thumbnail?.url ) {
 		text += `[thumbnail](${embed.thumbnail.url})\n`;
+		images.push( `[^](${embed.thumbnail.url})` );
 	}
 	if ( embed.description ) {
 		text += `${embed.description}\n`;
@@ -236,7 +241,8 @@ function msgRichEmbed( embed ) {
 		} ).join('\n') + '\n';
 	}
 	if ( embed.image?.url ) {
-		text += `[image](${embed.image.url})\n`;
+		text += `**[image](${embed.image.url})**\n`;
+		images.push( `**[^](${embed.image.url})**` );
 	}
 	if ( embed.footer?.text ) {
 		let timestamp = '';
@@ -246,5 +252,5 @@ function msgRichEmbed( embed ) {
 	else if ( embed.timestamp ) {
 		text += `<time:${embed.timestamp}>\n`;
 	}
-	return '`````quote\n' + text + '`````';
+	return '`````quote\n' + text + '`````' + ( images.length ? '\n' + images.join(' ') : '' );
 }
