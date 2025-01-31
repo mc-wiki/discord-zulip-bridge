@@ -1,6 +1,6 @@
 import { cleanContent, channelLink, EmbedType, FormattingPatterns, MessageFlags, MessageReferenceType, MessageType, StickerFormatType } from 'discord.js';
 import { zulip } from '../clients.js';
-import { mentionable_zulip_groups, upload_files_to_zulip } from '../config.js';
+import { mentionable_zulip_groups, upload_files_to_zulip, discordToZulipReplacements } from '../config.js';
 import { db, messagesTable, channelsTable } from '../db.js';
 import { eq } from 'drizzle-orm';
 
@@ -12,7 +12,7 @@ import { eq } from 'drizzle-orm';
 export default async function formatter( msg ) {
 	/** @type {{content: String}} */
 	let message = {
-		content: '@\u200b' + ( msg.member || msg.author ).displayName + ': ' + await msgCleanContent( msg ),
+		content: '@\u200b' + ( msg.member || msg.author ).displayName + ': ' + await msgCleanContent( msg.content, msg.channel, true ),
 	};
 
 	// Loading bot response
@@ -27,7 +27,7 @@ export default async function formatter( msg ) {
 		const zulipMessages = await db.select().from(messagesTable).where(eq(messagesTable.discordMessageId, discordMessage.id));
 		let sourceLink = 'Reply to';
 		let sourceUser = '@\u200b' + ( discordMessage.member || discordMessage.author ).displayName;
-		let sourceContent = await msgCleanContent( discordMessage );
+		let sourceContent = await msgCleanContent( discordMessage.content, discordMessage.channel );
 		if ( zulipMessages.length > 0 ) {
 			sourceLink = `[Reply to](${process.env.ZULIP_REALM}/#narrow/channel/${zulipMessages[0].zulipStream}/topic/${encodeURIComponent(zulipMessages[0].zulipSubject)}/near/${zulipMessages[0].zulipMessageId})`;
 			if ( zulipMessages[0].source === 'zulip' ) {
@@ -61,8 +61,8 @@ export default async function formatter( msg ) {
 				sourceLink = `[Message](${process.env.ZULIP_REALM}/#narrow/channel/${zulipMessages[0].zulipStream}/topic/${zulipMessages[0].zulipSubject}/near/${zulipMessages[0].zulipMessageId})`;
 			};
 			let text = sourceLink + ' forwarded by @\u200b' + ( msg.member || msg.author ).displayName + ':\n``````quote\n';
-			text += await msgCleanContent( snapshot );
-			text += msgEmbeds( snapshot );
+			text += await msgCleanContent( snapshot.content, snapshot.channel || msg.channel );
+			text += msgEmbeds( snapshot, msg.channel );
 			text += await msgStickerLinks( snapshot );
 			text += await msgAttachmentLinks( snapshot );
 			text += '\n``````';
@@ -122,12 +122,27 @@ export default async function formatter( msg ) {
 }
 
 /**
- * Return Discord message content with all mentions teplaced
- * @param {import('discord.js').Message|import('discord.js').MessageSnapshot} msg 
+ * Return Discord message content with all mentions replaced
+ * @param {String} content 
+ * @param {import('discord.js').TextBasedChannel} channel 
+ * @param {Boolean} [notAtStartOfLine] 
  * @returns {Promise<String>}
  */
-async function msgCleanContent( msg ) {
-	let content = msg.content || '';
+async function msgCleanContent( content = '', channel, notAtStartOfLine ) {
+	if ( notAtStartOfLine && /^(>|>>>|#{1,3}|-#) /.test( content ) ) content = '\n' + content;
+
+	// Quote blocks
+	if ( content.includes( '\n>>> ' ) ) {
+		let quoteParts = content.split('\n>>> ');
+		content = quoteParts[0] + '\n````quote\n' + quoteParts.slice(1).join( '\n>>> ' ) + '\n````';
+	}
+
+	// Text replacements
+	discordToZulipReplacements.forEach( (value, key) => {
+		content = content.replaceAll(key, value);
+	} );
+
+	// No mentions
 	if ( !content.includes( '<' ) ) return content;
 
 	// Channel mentions
@@ -136,7 +151,7 @@ async function msgCleanContent( msg ) {
 	while ( ( match = regex.exec( content ) ) !== null ) {
 		let [mention, id] = match;
 
-		const discordChannel = msg.client.channels.cache.get(id);
+		const discordChannel = channel.client.channels.cache.get(id);
 		const zulipChannels = await db.select().from(channelsTable).where(eq(channelsTable.discordChannelId, id));
 		let replacement = mention;
 		if ( discordChannel?.guildId ) replacement = `**[${mention}](${channelLink(id, discordChannel.guildId)})**`;
@@ -155,7 +170,7 @@ async function msgCleanContent( msg ) {
 		content = content.replaceAll( mention, replacement );
 	}
 
-	return cleanContent( content, msg.channel );
+	return cleanContent( content, channel );
 }
 
 /**
@@ -197,19 +212,23 @@ async function msgStickerLinks( msg ) {
 /**
  * Convert Discord embeds
  * @param {import('discord.js').Message|import('discord.js').MessageSnapshot} msg 
+ * @param {import('discord.js').TextBasedChannel} [channel] 
  * @returns {String}
  */
-function msgEmbeds( msg ) {
+function msgEmbeds( msg, channel ) {
 	if ( !msg.embeds.filter( embed => embed.data.type === EmbedType.Rich ).length ) return '';
-	return '\n' + msg.embeds.filter( embed => embed.data.type === EmbedType.Rich ).map( msgRichEmbed ).join('\n');
+	return '\n' + msg.embeds.filter( embed => embed.data.type === EmbedType.Rich ).map( embed => {
+		return msgRichEmbed( embed, msg.channel || channel );
+	} ).join('\n');
 }
 
 /**
  * Convert a Discord rich embed
  * @param {import('discord.js').Embed} embed 
+ * @param {import('discord.js').TextBasedChannel} channel 
  * @returns {String}
  */
-function msgRichEmbed( embed ) {
+function msgRichEmbed( embed, channel ) {
 	if ( embed.data.type !== EmbedType.Rich ) return '';
 	let text = '';
 	let images = [];
@@ -233,11 +252,11 @@ function msgRichEmbed( embed ) {
 		images.push( `[^](${embed.thumbnail.url})` );
 	}
 	if ( embed.description ) {
-		text += `${embed.description}\n`;
+		text += msgCleanContent( embed.description, channel ) + '\n';
 	}
 	if ( embed.fields.length ) {
 		text += embed.fields.map( ({name, value}) => {
-			return `- **${name}**\n` + '````quote\n' + value + '\n````';
+			return `- **${name}**\n` + '````quote\n' + msgCleanContent( value, channel ) + '\n````';
 		} ).join('\n') + '\n';
 	}
 	if ( embed.image?.url ) {

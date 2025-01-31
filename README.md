@@ -37,6 +37,9 @@ ZULIP_REALM="https://mc-wiki.zulipchat.com"
 	"ignored_zulip_users": [],
 	"mentionable_discord_roles": [],
 	"mentionable_zulip_groups": [],
+	"text_replacements": {
+		":zulip:": "<:zulip:1334889309089562675>"
+	},
 	"upload_files_to_zulip": false
 }
 ```

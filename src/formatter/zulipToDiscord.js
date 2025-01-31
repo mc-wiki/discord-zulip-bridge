@@ -1,7 +1,7 @@
 import * as url_template_lib from 'url-template';
 import { messageLink } from 'discord.js';
 import { zulip, discord } from '../clients.js';
-import { mentionable_discord_roles } from '../config.js';
+import { mentionable_discord_roles, zulipToDiscordReplacements } from '../config.js';
 import { db, messagesTable, channelsTable } from '../db.js';
 import { and, eq, isNull } from 'drizzle-orm';
 
@@ -33,6 +33,11 @@ export default async function formatter( msg, msgData ) {
 		avatarURL: msg.avatar_url,
 		content: ( msg.is_me_message ? '_' + msg.content.replace( /^\/me /, '' ) + '_' : msg.content ),
 	};
+
+	// Text replacements
+	zulipToDiscordReplacements.forEach( (value, key) => {
+		message.content = message.content.replaceAll(key, value);
+	} );
 
 	// Discord role mentions
 	if ( mentionable_discord_roles.length ) {
