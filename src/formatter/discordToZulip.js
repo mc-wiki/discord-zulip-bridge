@@ -62,7 +62,7 @@ export default async function formatter( msg ) {
 			};
 			let text = sourceLink + ' forwarded by @\u200b' + ( msg.member || msg.author ).displayName + ':\n``````quote\n';
 			text += await msgCleanContent( snapshot.content, snapshot.channel || msg.channel );
-			text += msgEmbeds( snapshot, msg.channel );
+			text += await msgEmbeds( snapshot, msg.channel );
 			text += await msgStickerLinks( snapshot );
 			text += await msgAttachmentLinks( snapshot );
 			text += '\n``````';
@@ -71,7 +71,7 @@ export default async function formatter( msg ) {
 	}
 
 	// Discord embeds
-	message.content += msgEmbeds( msg );
+	message.content += await msgEmbeds( msg );
 
 	// Message links
 	const linkRegex = /(\]\()?<?https:\/\/(?:canary\.|ptb\.)?discord\.com\/channels\/(\d+)\/(\d+)\/(\d+)>?(\))?/g;
@@ -213,22 +213,22 @@ async function msgStickerLinks( msg ) {
  * Convert Discord embeds
  * @param {import('discord.js').Message|import('discord.js').MessageSnapshot} msg 
  * @param {import('discord.js').TextBasedChannel} [channel] 
- * @returns {String}
+ * @returns {Promise<String>}
  */
-function msgEmbeds( msg, channel ) {
+async function msgEmbeds( msg, channel ) {
 	if ( !msg.embeds.filter( embed => embed.data.type === EmbedType.Rich ).length ) return '';
-	return '\n' + msg.embeds.filter( embed => embed.data.type === EmbedType.Rich ).map( embed => {
+	return '\n' + ( await Promise.all( msg.embeds.filter( embed => embed.data.type === EmbedType.Rich ).map( embed => {
 		return msgRichEmbed( embed, msg.channel || channel );
-	} ).join('\n');
+	} ) ) ).join('\n');
 }
 
 /**
  * Convert a Discord rich embed
  * @param {import('discord.js').Embed} embed 
  * @param {import('discord.js').TextBasedChannel} channel 
- * @returns {String}
+ * @returns {Promise<String>}
  */
-function msgRichEmbed( embed, channel ) {
+async function msgRichEmbed( embed, channel ) {
 	if ( embed.data.type !== EmbedType.Rich ) return '';
 	let text = '';
 	let images = [];
@@ -252,12 +252,12 @@ function msgRichEmbed( embed, channel ) {
 		images.push( `[^](${embed.thumbnail.url})` );
 	}
 	if ( embed.description ) {
-		text += msgCleanContent( embed.description, channel ) + '\n';
+		text += await msgCleanContent( embed.description, channel ) + '\n';
 	}
 	if ( embed.fields.length ) {
-		text += embed.fields.map( ({name, value}) => {
-			return `- **${name}**\n` + '````quote\n' + msgCleanContent( value, channel ) + '\n````';
-		} ).join('\n') + '\n';
+		text += ( await Promise.all( embed.fields.map( async ({name, value}) => {
+			return `- **${name}**\n` + '````quote\n' + await msgCleanContent( value, channel ) + '\n````';
+		} ) ) ).join('\n') + '\n';
 	}
 	if ( embed.image?.url ) {
 		text += `**[image](${embed.image.url})**\n`;
