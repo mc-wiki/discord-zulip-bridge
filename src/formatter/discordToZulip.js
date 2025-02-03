@@ -1,7 +1,8 @@
 import { cleanContent, channelLink, EmbedType, FormattingPatterns, MessageFlags, MessageReferenceType, MessageType, StickerFormatType } from 'discord.js';
+import { zulipLimits, got, ZulipError } from '../classes.js';
 import { zulip } from '../clients.js';
 import { mentionable_zulip_groups, upload_files_to_zulip, discordToZulipReplacements } from '../config.js';
-import { db, messagesTable, channelsTable } from '../db.js';
+import { db, messagesTable, channelsTable, uploadsTable } from '../db.js';
 import { eq } from 'drizzle-orm';
 
 /**
@@ -29,12 +30,9 @@ export default async function formatter( msg ) {
 		let sourceUser = '@\u200b' + ( discordMessage.member || discordMessage.author ).displayName;
 		let sourceContent = await msgCleanContent( discordMessage.content, discordMessage.channel );
 		if ( zulipMessages.length > 0 ) {
-			sourceLink = `[Reply to](${process.env.ZULIP_REALM}/#narrow/channel/${zulipMessages[0].zulipStream}/topic/${encodeURIComponent(zulipMessages[0].zulipSubject)}/near/${zulipMessages[0].zulipMessageId})`;
+			sourceLink = `[Reply to](${zulip.realm}/#narrow/channel/${zulipMessages[0].zulipStream}/topic/${encodeURIComponent(zulipMessages[0].zulipSubject)}/near/${zulipMessages[0].zulipMessageId})`;
 			if ( zulipMessages[0].source === 'zulip' ) {
-				const zulipSource = ( await zulip.messages.getById( {
-					message_id: zulipMessages[0].zulipMessageId,
-					apply_markdown: false,
-				} ) ).message;
+				const zulipSource = await zulip.getMessage( zulipMessages[0].zulipMessageId );
 				if ( zulipSource ) {
 					sourceContent = zulipSource.content;
 					sourceUser = `@**${zulipSource.sender_full_name}|${zulipSource.sender_id}**`;
@@ -58,7 +56,7 @@ export default async function formatter( msg ) {
 			const zulipMessages = await db.select().from(messagesTable).where(eq(messagesTable.discordMessageId, snapshot.id));
 			let sourceLink = 'Message';
 			if ( zulipMessages.length > 0 ) {
-				sourceLink = `[Message](${process.env.ZULIP_REALM}/#narrow/channel/${zulipMessages[0].zulipStream}/topic/${zulipMessages[0].zulipSubject}/near/${zulipMessages[0].zulipMessageId})`;
+				sourceLink = `[Message](${zulip.realm}/#narrow/channel/${zulipMessages[0].zulipStream}/topic/${zulipMessages[0].zulipSubject}/near/${zulipMessages[0].zulipMessageId})`;
 			};
 			let text = sourceLink + ' forwarded by @\u200b' + ( msg.member || msg.author ).displayName + ':\n``````quote\n';
 			text += await msgCleanContent( snapshot.content, snapshot.channel || msg.channel );
@@ -78,23 +76,60 @@ export default async function formatter( msg ) {
 	let linkMatch;
 	while ( ( linkMatch = linkRegex.exec( message.content ) ) !== null ) {
 		let [link, prefix, guildId, channelId, msgId, suffix] = linkMatch;
+		prefix ??= '';
+		suffix ??= '';
 
 		const zulipMessages = await db.select().from(messagesTable).where(eq(messagesTable.discordMessageId, msgId));
 		if ( zulipMessages.length === 0 ) continue;
-		let replacement = `${prefix}${process.env.ZULIP_REALM}/#narrow/channel/${zulipMessages[0].zulipStream}/topic/${encodeURIComponent(zulipMessages[0].zulipSubject)}/near/${zulipMessages[0].zulipMessageId}${suffix}`;
+		let replacement = `${prefix}${zulip.realm}/#narrow/channel/${zulipMessages[0].zulipStream}/topic/${encodeURIComponent(zulipMessages[0].zulipSubject)}/near/${zulipMessages[0].zulipMessageId}${suffix}`;
 		if ( !prefix && !suffix ) {
-			const zulipChannel = await zulip.callEndpoint(`/streams/${zulipMessages[0].zulipStream}`);
-			if ( zulipChannel?.result === 'success' ) {
-				replacement = `#**${zulipChannel.stream.name}>${zulipMessages[0].zulipSubject}@${zulipMessages[0].zulipMessageId}**`;
+			try {
+				const zulipChannel = await zulip.getChannel( zulipMessages[0].zulipStream );
+				replacement = `#**${zulipChannel.name}>${zulipMessages[0].zulipSubject}@${zulipMessages[0].zulipMessageId}**`;
 			}
-			else if ( zulipChannel?.msg === 'Invalid channel ID' ) {
-				await db.delete(channelsTable).where(eq(channelsTable.zulipStream, zulipMessages[0].zulipStream));
-				await db.delete(messagesTable).where(eq(messagesTable.zulipStream, zulipMessages[0].zulipStream));
-				console.log( `- Deleted connection between #${zulipMessages[0].discordChannelId} and ${zulipMessages[0].zulipStream}>${zulipMessages[0].zulipSubject}` );
-				continue;
+			catch ( error ) {
+				if ( error instanceof ZulipError && error.message === 'Invalid channel ID' ) {
+					await db.delete(channelsTable).where(eq(channelsTable.zulipStream, zulipMessages[0].zulipStream));
+					await db.delete(messagesTable).where(eq(messagesTable.zulipStream, zulipMessages[0].zulipStream));
+					console.log( `- Deleted connection between #${zulipMessages[0].discordChannelId} and ${zulipMessages[0].zulipStream}>${zulipMessages[0].zulipSubject}` );
+				}
+				else throw error;
 			}
 		}
 		message.content = message.content.replaceAll( link, replacement );
+	}
+
+	// Discord file links
+	if ( upload_files_to_zulip ) {
+		const cdnLinkRegex = /(\]\()?<?(https:\/\/cdn.discordapp\.com\/([a-z-]+)\/([^\s?]+)(\?[&a-z=\d]+)?)>?(\))?/g;
+		let cdnLinkMatch;
+		while ( ( cdnLinkMatch = cdnLinkRegex.exec( message.content ) ) !== null ) {
+			let [link, prefix, fileUrl, endpoint, path, query, suffix] = cdnLinkMatch;
+			prefix ??= '';
+			suffix ??= '';
+			query ??= '';
+	
+			if ( endpoint !== 'attachments' ) continue;
+			const fileUrlKey = ( endpoint === 'attachments' ? fileUrl.split('?')[0] : fileUrl );
+			let replacement;
+			const zulipUploads = await db.select().from(uploadsTable).where(eq(uploadsTable.discordFileUrl, fileUrlKey));
+			if ( zulipUploads.length > 0 ) replacement = `${prefix}${zulip.realm}/user_uploads/${zulipUploads[0].zulipFileUrl}${suffix}`;
+			else {
+				try {
+					let file = new File( [await got.get( fileUrl ).buffer()], path.split('/').pop() );
+					let zulipFile = await zulip.uploadFile( file );
+					replacement = `${prefix}${zulip.realm}${zulipFile.url}${suffix}`;
+					await db.insert(uploadsTable).values( {
+						discordFileUrl: fileUrlKey,
+						zulipFileUrl: zulipFile.url.replace( '/user_uploads/', '' ),
+					} );
+				}
+				catch ( error ) {
+					console.log( `- Failed to upload linked file to Zulip: ${error}` );
+				}
+			}
+			if ( replacement ) message.content = message.content.replaceAll( link, replacement );
+		}
 	}
 
 	// Timestamps
@@ -117,6 +152,21 @@ export default async function formatter( msg ) {
 
 	// Wildcard mentions
 	message.content = message.content.replace( /@\*\*(all|everyone|channel|topic)\*\*/g, '@_**$1**' );
+
+	// Don't exceed message length limit
+	if ( message.content.length > zulipLimits.max_message_length ) {
+		let lines = message.content.split('\n');
+		let msgLink = `[[…]](${msg.url})`;
+		let length = msgLink.length + 1;
+		if ( lines[0].length + length >= zulipLimits.max_message_length ) lines = [
+			lines[0].slice(0, zulipLimits.max_message_length - length ) + ' ' + msgLink
+		];
+		else {
+			lines = lines.filter( line => ( length += line.length + 1 ) <= zulipLimits.max_message_length );
+			lines.push( msgLink );
+		}
+		message.content = lines.join('\n');
+	}
 
 	return message;
 }
@@ -156,15 +206,18 @@ async function msgCleanContent( content = '', channel, notAtStartOfLine ) {
 		let replacement = mention;
 		if ( discordChannel?.guildId ) replacement = `**[${mention}](${channelLink(id, discordChannel.guildId)})**`;
 		if ( zulipChannels.length > 0 ) {
-			const zulipChannel = await zulip.callEndpoint(`/streams/${zulipChannels[0].zulipStream}`);
-			if ( zulipChannel?.result === 'success' ) {
-				if ( !zulipChannels[0].zulipSubject ) replacement = `#**${zulipChannel.stream.name}**`;
-				else replacement = `#**${zulipChannel.stream.name}>${zulipChannels[0].zulipSubject}**`;
+			try {
+				const zulipChannel = await zulip.getChannel( zulipChannels[0].zulipStream );
+				if ( !zulipChannels[0].zulipSubject ) replacement = `#**${zulipChannel.name}**`;
+				else replacement = `#**${zulipChannel.name}>${zulipChannels[0].zulipSubject}**`;
 			}
-			else if ( zulipChannel?.msg === 'Invalid channel ID' ) {
-				await db.delete(channelsTable).where(eq(channelsTable.zulipStream, zulipChannels[0].zulipStream));
-				await db.delete(messagesTable).where(eq(messagesTable.zulipStream, zulipChannels[0].zulipStream));
-				console.log( `- Deleted connection between #${zulipChannels[0].discordChannelId} and ${zulipChannels[0].zulipStream}>${zulipChannels[0].zulipSubject}` );
+			catch ( error ) {
+				if ( error instanceof ZulipError && error.message === 'Invalid channel ID' ) {
+					await db.delete(channelsTable).where(eq(channelsTable.zulipStream, zulipChannels[0].zulipStream));
+					await db.delete(messagesTable).where(eq(messagesTable.zulipStream, zulipChannels[0].zulipStream));
+					console.log( `- Deleted connection between #${zulipChannels[0].discordChannelId} and ${zulipChannels[0].zulipStream}>${zulipChannels[0].zulipSubject}` );
+				}
+				else throw error;
 			}
 		}
 		content = content.replaceAll( mention, replacement );
@@ -184,7 +237,22 @@ async function msgAttachmentLinks( msg ) {
 		let description = attachment.description ? attachment.description + ': ' : '';
 		let url = attachment.url;
 		if ( upload_files_to_zulip ) {
-			// TODO: Upload files to Zulip
+			const zulipUploads = await db.select().from(uploadsTable).where(eq(uploadsTable.discordFileUrl, attachment.url.split('?')[0]));
+			if ( zulipUploads.length > 0 ) url = `/user_uploads/${zulipUploads[0].zulipFileUrl}`;
+			else if ( attachment.size < zulipLimits.max_file_upload_size_mib * 1024 * 1024 ) {
+				try {
+					let file = new File( [await got.get( attachment.url ).buffer()], attachment.name, {type: attachment.contentType} );
+					let zulipFile = await zulip.uploadFile( file );
+					url = zulipFile.url;
+					await db.insert(uploadsTable).values( {
+						discordFileUrl: attachment.url.split('?')[0],
+						zulipFileUrl: zulipFile.url.replace( '/user_uploads/', '' ),
+					} );
+				}
+				catch ( error ) {
+					console.log( `- Failed to upload file to Zulip: ${error}` );
+				}
+			}
 		}
 		return `[${description}${attachment.name}](${url})`;
 	} ) ) ).join('\n');
@@ -200,10 +268,30 @@ async function msgStickerLinks( msg ) {
 	return '\n' + ( await Promise.all( msg.stickers.map( async sticker => {
 		let text = `Sticker: ${sticker.name}` + ( sticker.description ? ` - ${sticker.description}` : '' );
 		if ( sticker.format !== StickerFormatType.Lottie ) {
-			text = `[${text}](${sticker.url})`
-		}
-		if ( upload_files_to_zulip ) {
-			// TODO: Upload files to Zulip
+			let url = sticker.url;
+			if ( upload_files_to_zulip ) {
+				const zulipUploads = await db.select().from(uploadsTable).where(eq(uploadsTable.discordFileUrl, sticker.url));
+				if ( zulipUploads.length > 0 ) url = `/user_uploads/${zulipUploads[0].zulipFileUrl}`;
+				else {
+					try {
+						let contentType;
+						if ( sticker.format === StickerFormatType.PNG ) contentType = 'image/png';
+						if ( sticker.format === StickerFormatType.APNG ) contentType = 'image/apng';
+						if ( sticker.format === StickerFormatType.GIF ) contentType = 'image/gif';
+						let file = new File( [await got.get( sticker.url ).buffer()], sticker.name, {type: contentType} );
+						let zulipFile = await zulip.uploadFile( file );
+						url = zulipFile.url;
+						await db.insert(uploadsTable).values( {
+							discordFileUrl: sticker.url,
+							zulipFileUrl: zulipFile.url.replace( '/user_uploads/', '' ),
+						} );
+					}
+					catch ( error ) {
+						console.log( `- Failed to upload sticker to Zulip: ${error}` );
+					}
+				}
+			}
+			text = `[${text}](${url})`
 		}
 		return text;
 	} ) ) ).join('\n');

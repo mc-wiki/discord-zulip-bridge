@@ -33,3 +33,17 @@ export const messagesTable = sqliteTable(
 		uniqueIndex('zulip_message_id_idx').on(table.zulipMessageId),
 	]
 );
+
+export const uploadsTable = sqliteTable(
+	'uploads',
+	{
+		discordFileUrl: text().unique().notNull(),
+		zulipFileUrl: text().unique().notNull(),
+		zulipFileId: integer().unique(),
+	},
+	(table) => [
+		uniqueIndex('discord_url_idx').on(table.discordFileUrl),
+		uniqueIndex('zulip_file_url_idx').on(table.zulipFileUrl),
+		uniqueIndex('zulip_file_id_idx').on(table.zulipFileId),
+	]
+);

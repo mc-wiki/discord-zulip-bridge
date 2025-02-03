@@ -9,6 +9,12 @@ import './src/zulip.js';
  * @param {NodeJS.Signals} signal - The signal received.
  */
 function graceful(signal) {
+	zulip.queueList.forEach( (queueData, queue_id) => {
+		zulip.queueList.delete( queue_id );
+		clearTimeout( queueData.timeout );
+		queueData.request?.cancel?.(`${signal}`);
+	} );
+	console.log( '- ' + signal + ': Clearing Zulip queues...' );
 	discord.destroy();
 	console.log( '- ' + signal + ': Destroying Discord client...' );
 	process.exit(0);

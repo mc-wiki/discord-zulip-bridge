@@ -1,13 +1,12 @@
 import * as Discord from 'discord.js';
-import zulipInit from 'zulip-js';
+import { Zulip } from './classes.js';
 import { mentionable_discord_roles } from './config.js';
 
-globalThis.isDebug = ( process.argv[2] === 'debug' );
-
-export const zulip = await zulipInit( {
+export const zulip = new Zulip( {
 	username: process.env.ZULIP_USERNAME,
 	apiKey: process.env.ZULIP_API_KEY,
 	realm: process.env.ZULIP_REALM,
+	userId: process.env.ZULIP_ID,
 } );
 
 export const discord = new Discord.Client( {
@@ -26,7 +25,7 @@ export const discord = new Discord.Client( {
 		activities: [
 			{
 				type: Discord.ActivityType.Custom,
-				name: process.env.ZULIP_REALM,
+				name: zulip.realm,
 			}
 		]
 	},
@@ -42,7 +41,7 @@ export const discord = new Discord.Client( {
 } );
 
 discord.on( Discord.Events.ClientReady, () => {
-	console.log( '\n- Successfully logged in on Discord as ' + discord.user.username + '!\n' );
+	console.log( `\n- Successfully logged in on Discord as ${discord.user.username}!\n` );
 } );
 
 discord.on( Discord.Events.Error, console.error );

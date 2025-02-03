@@ -1,5 +1,6 @@
 import * as url_template_lib from 'url-template';
 import { messageLink } from 'discord.js';
+import { zulipLimits } from '../classes.js';
 import { zulip, discord } from '../clients.js';
 import { mentionable_discord_roles, zulipToDiscordReplacements } from '../config.js';
 import { db, messagesTable, channelsTable } from '../db.js';
@@ -7,10 +8,6 @@ import { and, eq, isNull } from 'drizzle-orm';
 
 /** @type {Map<RegExp, {url_template: url_template_lib.Template; group_number_to_name: Record<number, string>}>} */
 const linkifier_map = new Map();
-
-zulip.callEndpoint('/realm/linkifiers').then( result => {
-	update_linkifier_rules( result.linkifiers );
-} );
 
 /**
  * Format Zulip messages into Discord messages
@@ -61,7 +58,7 @@ export default async function formatter( msg, msgData ) {
 		let [link, channel, topic, msgId] = linkMatch;
 
 		const discordMessages = await db.select().from(messagesTable).where(eq(messagesTable.zulipMessageId, msgId));
-		let replacement = `](<${process.env.ZULIP_REALM}${link}>)`;
+		let replacement = `](<${zulip.realm}${link}>)`;
 		if ( discordMessages.length > 0 ) {
 			/** @type {import('discord.js').GuildChannel} */
 			const discordChannel = await discord.channels.fetch(discordMessages[0].discordChannelId).catch( async error => {
@@ -76,7 +73,7 @@ export default async function formatter( msg, msgData ) {
 				replacement = `](<${messageLink(discordChannel.id, discordMessages[0].discordMessageId, discordChannel.guildId)}>)`;
 			}
 		}
-		message.content = message.content.replaceAll( `](${process.env.ZULIP_REALM}${link})`, replacement );
+		message.content = message.content.replaceAll( `](${zulip.realm}${link})`, replacement );
 	}
 
 	// Message mentions
@@ -86,7 +83,7 @@ export default async function formatter( msg, msgData ) {
 		let [mention, channel, topic, msgId] = msgMentionMatch;
 
 		const discordMessages = await db.select().from(messagesTable).where(eq(messagesTable.zulipMessageId, msgId));
-		let replacement = `**[#${channel}>${topic}@${msgId}](<${process.env.ZULIP_REALM}/#narrow/channel/${encodeURIComponent(channel)}/topic/${encodeURIComponent(topic)}/near/${msgId}>)**`;
+		let replacement = `**[#${channel}>${topic}@${msgId}](<${zulip.realm}/#narrow/channel/${encodeURIComponent(channel)}/topic/${encodeURIComponent(topic)}/near/${msgId}>)**`;
 		if ( discordMessages.length > 0 ) {
 			/** @type {import('discord.js').GuildChannel} */
 			const discordChannel = await discord.channels.fetch(discordMessages[0].discordChannelId).catch( async error => {
@@ -110,10 +107,10 @@ export default async function formatter( msg, msgData ) {
 	while ( ( topicMentionMatch = topicMentionRegex.exec( message.content ) ) !== null ) {
 		let [mention, channel, topic] = topicMentionMatch;
 
-		const zulipStream = ( await zulip.streams.getStreamId( channel ) ).stream_id;
+		const zulipStream = ( await zulip.getStreamId( channel ) );
 		if ( !zulipStream ) continue;
 		const discordChannels = await db.select().from(channelsTable).where(and(eq(channelsTable.zulipStream, zulipStream),eq(channelsTable.zulipSubject, topic)));
-		let replacement = `**[#${channel}>${topic}](<${process.env.ZULIP_REALM}/#narrow/channel/${encodeURIComponent(channel)}/topic/${encodeURIComponent(topic)}>)**`;
+		let replacement = `**[#${channel}>${topic}](<${zulip.realm}/#narrow/channel/${encodeURIComponent(channel)}/topic/${encodeURIComponent(topic)}>)**`;
 		if ( discordChannels.length > 0 ) {
 			replacement = `<#${discordChannels[0].discordChannelId}>`;
 		}
@@ -126,10 +123,10 @@ export default async function formatter( msg, msgData ) {
 	while ( ( channelMentionMatch = channelMentionRegex.exec( message.content ) ) !== null ) {
 		let [mention, channel] = channelMentionMatch;
 
-		const zulipStream = ( await zulip.streams.getStreamId( channel ) ).stream_id;
+		const zulipStream = ( await zulip.getStreamId( channel ) );
 		if ( !zulipStream ) continue;
 		const discordChannels = await db.select().from(channelsTable).where(and(eq(channelsTable.zulipStream, zulipStream),isNull(channelsTable.zulipSubject)));
-		let replacement = `**[#${channel}](<${process.env.ZULIP_REALM}/#narrow/channel/${encodeURIComponent(channel)}>)**`;
+		let replacement = `**[#${channel}](<${zulip.realm}/#narrow/channel/${encodeURIComponent(channel)}>)**`;
 		if ( discordChannels.length > 0 ) {
 			replacement = `<#${discordChannels[0].discordChannelId}>`;
 		}
@@ -141,12 +138,17 @@ export default async function formatter( msg, msgData ) {
 
 	// File uploads
 	if ( message.content.includes( '](/user_uploads/' ) ) {
-		message.content = message.content.replaceAll( '](/user_uploads/', `](${process.env.ZULIP_REALM}/user_uploads/` );
+		message.content = message.content.replaceAll( '](/user_uploads/', `](${zulip.realm}/user_uploads/` );
 	}
 
 	// Quotes
 	if ( message.content.includes( '```quote\n' ) ) {
 		message.content = replaceQuote( message.content );
+	}
+
+	// Default code blocks
+	if ( zulipLimits.default_code_block_language && message.content.includes( '```\n' ) ) {
+		message.content = replaceDefaultCodeBlocks( message.content );
 	}
 
 	// Timestamps
@@ -171,6 +173,7 @@ export default async function formatter( msg, msgData ) {
 		});
 	});
 
+	// Don't exceed message length limit
 	if ( message.content.length > 2_000 ) {
 		let lines = message.content.split('\n');
 		// Remove stacked quotes
@@ -179,7 +182,7 @@ export default async function formatter( msg, msgData ) {
 			// Remove all quotes
 			lines = lines.filter( line => !line.startsWith( '> ' ) );
 			if ( lines.reduce( (length, line) => length + line.length, 0 ) > 2_000 ) {
-				let msgLink = `[[…]](<${process.env.ZULIP_REALM}/#narrow/channel/${msgData.zulipStream}/topic/${encodeURIComponent(msgData.zulipSubject)}/near/${msgData.zulipMessageId}>)`;
+				let msgLink = `[[…]](<${zulip.realm}/#narrow/channel/${msgData.zulipStream}/topic/${encodeURIComponent(msgData.zulipSubject)}/near/${msgData.zulipMessageId}>)`;
 				let length = msgLink.length + 1;
 				if ( lines[0].length + length >= 2_000 ) lines = [ lines[0].slice(0, 2_000 - length ) + ' ' + msgLink ];
 				else {
@@ -196,17 +199,30 @@ export default async function formatter( msg, msgData ) {
 
 /**
  * Recursively replace quote blocks
- * @param {String} src 
+ * @param {String} text 
  * @returns {String}
  */
-function replaceQuote( src ) {
-	return src.replace( /(```+)quote\n(.*?)\n\1(?!`)\n*/gs, (src, block, quote) => {
+function replaceQuote( text ) {
+	return text.replace( /(```+)quote\n(.*?)\n\1(?!`)\n*/gs, (src, block, quote) => {
 		quote = quote.replace( /(<)?\b(https?:\/\/[^\s<>]+[^\s"'),.:;<>\]])(>)?/g, (link, prefix, url, suffix) => {
 			if ( prefix && suffix ) return link;
 			return `<${url}>`;
 		} );
 		if ( quote.includes( '```quote\n' ) ) quote = replaceQuote( quote );
 		return '> ' + quote.replaceAll( '\n', '\n> ' ) + '\n';
+	} );
+}
+
+/**
+ * Replace default code blocks
+ * @param {String} text 
+ * @returns {String}
+ */
+function replaceDefaultCodeBlocks( text ) {
+	if ( !zulipLimits.default_code_block_language ) return text;
+	return text.replace( /(```+)(\w*?)\n(.*?)\n\1(?!`)\n*/gs, (src, block, lang, code) => {
+		if ( lang ) return src;
+		return `${block}${zulipLimits.default_code_block_language}\n${code}\n${block}\n`;
 	} );
 }
 
@@ -303,7 +319,7 @@ function python_to_js_linkifier( pattern, url ) {
  * Source: https://github.com/zulip/zulip/blob/main/web/src/linkifiers.ts#L88
  * @param {{pattern: String, url_template: String}[]} linkifiers 
  */
-function update_linkifier_rules( linkifiers ) {
+export function update_linkifier_rules( linkifiers ) {
 	linkifier_map.clear();
 
 	for (const linkifier of linkifiers) {

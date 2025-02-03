@@ -1,24 +1,76 @@
+import { zulipLimits } from './classes.js';
 import { zulip, discord } from './clients.js';
-import formatToDiscord from './formatter/zulipToDiscord.js';
+import { default as formatToDiscord, update_linkifier_rules } from './formatter/zulipToDiscord.js';
 import { ignored_zulip_users } from './config.js';
-import { db, channelsTable, messagesTable } from './db.js';
-import { and, eq, isNull } from 'drizzle-orm';
+import { db, channelsTable, messagesTable, uploadsTable } from './db.js';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 
 /** @type {Map<String, import('discord.js').Webhook>} */
 const webhookMap = new Map();
 
-zulip.callOnEachEvent( async zulipEvent => {
+zulip.registerQueue( [
+	'message',
+	'update_message',
+	'delete_message',
+	'realm_linkifiers',
+	'attachment',
+	'realm'
+], {
+	fetch_event_types: [
+		'realm',
+		'realm_linkifiers'
+	],
+	client_capabilities: {
+		bulk_message_deletion: true,
+		linkifier_url_template: true
+	}
+}, zulipEvent => {
 	if ( zulipEvent.type === 'message' ) {
 		if ( zulipEvent.message.type === 'stream' ) return onZulipMessage( zulipEvent.message );
 		if ( zulipEvent.message.type === 'private' ) return onZulipCommand( zulipEvent.message );
 	}
 	if ( zulipEvent.type === 'update_message' ) return onZulipMessageUpdate( zulipEvent );
 	if ( zulipEvent.type === 'delete_message' ) return onZulipMessageDelete( zulipEvent );
-}, ['message', 'update_message', 'delete_message'] );
+	if ( zulipEvent.type === 'realm_linkifiers' ) return update_linkifier_rules( zulipEvent.realm_linkifiers );
+	if ( zulipEvent.type === 'attachment' ) return onZulipAttachment( zulipEvent );
+	if ( zulipEvent.type === 'realm' ) {
+		if ( zulipEvent.op === 'update' ) {
+			zulipEvent.data = { [zulipEvent.property]: zulipEvent.value };
+			zulipEvent.op = 'update_dict';
+		}
+		if ( zulipEvent.op === 'update_dict' ) Object.keys( zulipEvent.data ).forEach( setting => {
+			switch ( setting ) {
+				case 'max_file_upload_size_mib':
+				case 'default_code_block_language':
+					zulipLimits[setting] = zulipEvent.data[setting];
+					break;
+			}
+		} );
+	}
+	if ( zulipEvent.type === 'heartbeat' && isDebug ) console.log( `- Debug: Zulip Heartbeat acknowledged, event id ${zulipEvent.id}.` );
+} ).then( body => {
+	const {
+		realm_name, realm_linkifiers,
+		max_stream_name_length, max_topic_length,
+		max_message_length, max_file_upload_size_mib,
+		realm_default_code_block_language: default_code_block_language
+	} = body;
+	console.log( `\n- Successfully registered the main Zulip even queue for ${realm_name}!\n` );
+	update_linkifier_rules( realm_linkifiers );
+	Object.assign( zulipLimits, {
+		max_stream_name_length,
+		max_topic_length,
+		max_message_length,
+		max_file_upload_size_mib,
+		default_code_block_language
+	} );
+}, error => {
+	console.log( '- Error during the main event queue:', error );
+} );
 
 async function onZulipMessage( msg ) {
 	if ( msg.type !== 'stream' ) return;
-	if ( msg.sender_id === +process.env.ZULIP_ID ) return;
+	if ( msg.sender_id === zulip.userId ) return;
 	if ( ignored_zulip_users.includes( msg.sender_id ) ) return;
 
 	let threadName = null;
@@ -79,7 +131,7 @@ async function onZulipMessage( msg ) {
 	}
 	if ( !webhookMap.has( webhookChannel.id ) ) {
 		let webhooks = await webhookChannel.fetchWebhooks();
-		let newWebhook = webhooks.filter( webhook => webhook.applicationId === process.env.DISCORD_ID ).first();
+		let newWebhook = webhooks.filter( webhook => webhook.applicationId === webhook.client.user.id ).first();
 		if ( !newWebhook ) newWebhook = await webhookChannel.createWebhook({name: 'Zulip Bridge Webhook'});
 		webhookMap.set( webhookChannel.id, newWebhook );
 	}
@@ -110,7 +162,7 @@ async function onZulipMessage( msg ) {
 
 async function onZulipMessageUpdate( msg ) {
 	if ( msg.rendering_only ) return;
-	if ( msg.user_id === +process.env.ZULIP_ID ) return;
+	if ( msg.user_id === zulip.userId ) return;
 	if ( ignored_zulip_users.includes( msg.user_id ) ) return;
 
 	if ( msg.orig_content === msg.content ) return;
@@ -140,7 +192,7 @@ async function onZulipMessageUpdate( msg ) {
 	}
 	if ( !webhookMap.has( webhookChannel.id ) ) {
 		let webhooks = await webhookChannel.fetchWebhooks();
-		let newWebhook = webhooks.filter( webhook => webhook.applicationId === process.env.DISCORD_ID ).first();
+		let newWebhook = webhooks.filter( webhook => webhook.applicationId === webhook.client.user.id ).first();
 		if ( !newWebhook ) newWebhook = await webhookChannel.createWebhook({name: 'Zulip Bridge Webhook'});
 		webhookMap.set( webhookChannel.id, newWebhook );
 	}
@@ -159,31 +211,53 @@ async function onZulipMessageUpdate( msg ) {
 async function onZulipMessageDelete( msg ) {
 	if ( msg.message_type !== 'stream' ) return;
 
-	const discordMessages = await db.delete(messagesTable).where(eq(messagesTable.zulipMessageId, msg.message_id)).returning();
+	/** @type {Number[]} */
+	let zulipMessages = msg.message_ids ?? [msg.message_id];
+
+	const discordMessages = await db.delete(messagesTable).where(inArray(messagesTable.zulipMessageId, zulipMessages)).returning();
 
 	if ( discordMessages.length === 0 ) return;
-	
-	/** @type {import('discord.js').TextBasedChannel} */
-	const discordChannel = await discord.channels.fetch(discordMessages[0].discordChannelId).catch( async error => {
-		if ( error?.code !== 10003 ) return console.error( error );
 
-		await db.delete(channelsTable).where(eq(channelsTable.discordChannelId, discordMessages[0].discordChannelId));
-		await db.delete(messagesTable).where(eq(messagesTable.discordChannelId, discordMessages[0].discordChannelId));
-		console.log( `- Deleted connection between #${discordMessages[0].discordChannelId} and ${discordMessages[0].zulipStream}>${discordMessages[0].zulipSubject}` );
-		return null;
+	new Set( discordMessages.map( discordMessage => discordMessage.discordChannelId ) ).forEach( async discordChannelId => {
+		/** @type {import('discord.js').GuildTextBasedChannel} */
+		const discordChannel = await discord.channels.fetch(discordChannelId).catch( async error => {
+			if ( error?.code !== 10003 ) return console.error( error );
+
+			const discordChannels = await db.delete(channelsTable).where(eq(channelsTable.discordChannelId, discordChannelId)).returning();
+			await db.delete(messagesTable).where(eq(messagesTable.discordChannelId, discordChannelId));
+			console.log( `- Deleted connection between #${discordChannelId} and ${discordChannels[0]?.zulipStream}>${discordChannels[0]?.zulipSubject}` );
+			return null;
+		} );
+
+		if ( !discordChannel ) return;
+
+		const channelMessages = discordMessages.filter( discordMessage => discordMessage.discordChannelId === discordChannel.id );
+		const bulkDeleted = await discordChannel.bulkDelete( [
+			...new Set( channelMessages.slice(0, 100).map( channelMessage => channelMessage.discordMessageId ) )
+		], true );
+		channelMessages = channelMessages.filter( channelMessage => !bulkDeleted.has( channelMessage.discordMessageId ) );
+		channelMessages.forEach( async channelMessage => {
+			await discordChannel.messages.delete( channelMessage.discordMessageId );
+		} );
 	} );
+}
 
-	if ( !discordChannel ) return;
-
-	await discordChannel.messages.delete(discordMessages[0].discordMessageId);
+async function onZulipAttachment( { op, attachment } ) {
+	if ( op === 'remove' ) {
+		await db.delete(uploadsTable).where(eq(uploadsTable.zulipFileId, attachment.id));
+		return;
+	}
+	await db.update(uploadsTable).set( {
+		zulipFileId: attachment.id
+	} ).where(eq(uploadsTable.zulipFileUrl, attachment.path_id));
 }
 
 async function onZulipCommand( msg ) {
-	if ( msg.sender_id === +process.env.ZULIP_ID ) return;
+	if ( msg.sender_id === zulip.userId ) return;
 
 	if ( !msg.content.startsWith( '!bridge' ) ) return;
 
-	const zulipUser = ( await zulip.callEndpoint('/users/' + msg.sender_id) ).user;
+	const zulipUser = await zulip.getUser( msg.sender_id );
 
 	// Check for Zulip admin
 	if ( zulipUser.role > 200 ) return;
@@ -197,19 +271,19 @@ async function onZulipCommand( msg ) {
 	] = msg.content.match( /^!bridge #\*\*([^>*]+)(?:>([^@*]+))?\*\* (\d+)(?: (true|false))?/ )?.slice(1) ?? [];
 
 	if ( !zulipStream || !discordChannelId ) {
-		return await zulip.messages.send( {
+		return await zulip.sendMessage( {
 			type: 'direct',
 			to: [msg.sender_id],
 			content: '`!bridge <zulipChannelMention> <discordChannelId> <includeThreads>`\n> `!bridge #**Channel>Topic** 123456789012345 true`'
 		} );
 	}
 
-	zulipStream = ( await zulip.streams.getStreamId( zulipStream ) ).stream_id;
+	zulipStream = ( await zulip.getStreamId( zulipStream ) );
 	includeThreads = ( includeThreads === 'true' );
 	zulipSubject ??= null;
 
 	if ( !zulipStream ) {
-		return await zulip.messages.send( {
+		return await zulip.sendMessage( {
 			type: 'direct',
 			to: [msg.sender_id],
 			content: "Zulip channel doesn't exist or I'm not a subscriber yet!"
@@ -222,7 +296,7 @@ async function onZulipCommand( msg ) {
 		discordChannelId,
 		includeThreads
 	} );
-	return await zulip.messages.send( {
+	return await zulip.sendMessage( {
 		type: 'direct',
 		to: [msg.sender_id],
 		content: 'Bridge added!'
