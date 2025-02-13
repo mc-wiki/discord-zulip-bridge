@@ -208,6 +208,20 @@ export class Zulip {
 	}
 
 	/**
+	 * Update a user
+	 * @param {Number} user The user id
+	 * @param {Object} options 
+	 * @param {String} [options.full_name] 
+	 * @param {Number} [options.role] 
+	 * @param {{id: Number, value: String}[]} [options.profile_data] 
+	 * @param {String} [options.new_email] 
+	 * @returns {Promise<{user_id: Number, full_name: String, role: Number}>} The user
+	 */
+	async updateUser( user, options = {} ) {
+		await this.patch( `users/${user}`, options );
+	}
+
+	/**
 	 * Register an event queue
 	 * @param {String[]|String} event_types The event types
 	 * @param {Object} [options] Other request options

@@ -223,7 +223,7 @@ async function onZulipMessageDelete( msg ) {
 
 	if ( discordMessages.length === 0 ) return;
 
-	new Set( discordMessages.map( discordMessage => discordMessage.discordChannelId ) ).forEach( async discordChannelId => {
+	await Promise.all( new Set( discordMessages.map( discordMessage => discordMessage.discordChannelId ) ).map( async discordChannelId => {
 		/** @type {import('discord.js').GuildTextBasedChannel} */
 		const discordChannel = await discord.channels.fetch(discordChannelId).catch( async error => {
 			if ( error?.code !== 10003 ) return console.error( error );
@@ -241,10 +241,10 @@ async function onZulipMessageDelete( msg ) {
 			...new Set( channelMessages.slice(0, 100).map( channelMessage => channelMessage.discordMessageId ) )
 		], true );
 		channelMessages = channelMessages.filter( channelMessage => !bulkDeleted.has( channelMessage.discordMessageId ) );
-		channelMessages.forEach( async channelMessage => {
+		await Promise.all( channelMessages.map( async channelMessage => {
 			await discordChannel.messages.delete( channelMessage.discordMessageId );
-		} );
-	} );
+		} ) );
+	} ) );
 }
 
 async function onZulipAttachment( { op, attachment } ) {

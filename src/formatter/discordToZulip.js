@@ -179,7 +179,7 @@ export default async function formatter( msg ) {
  * @returns {Promise<String>}
  */
 async function msgCleanContent( content = '', channel, notAtStartOfLine ) {
-	if ( notAtStartOfLine && /^(>|>>>|#{1,3}|-#) /.test( content ) ) content = '\n' + content;
+	if ( notAtStartOfLine && /^(>|>>>|#{1,3}|-#|```) /.test( content ) ) content = '\n' + content;
 
 	// Quote blocks
 	if ( content.includes( '\n>>> ' ) ) {
