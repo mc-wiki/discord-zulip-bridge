@@ -125,7 +125,7 @@ export default async function formatter( msg ) {
 					} );
 				}
 				catch ( error ) {
-					console.log( `- Failed to upload linked file to Zulip: ${error}` );
+					console.log( '- Failed to upload linked file to Zulip:', error );
 				}
 			}
 			if ( replacement ) message.content = message.content.replaceAll( link, replacement );
@@ -250,7 +250,7 @@ async function msgAttachmentLinks( msg ) {
 					} );
 				}
 				catch ( error ) {
-					console.log( `- Failed to upload file to Zulip: ${error}` );
+					console.log( '- Failed to upload file to Zulip:', error );
 				}
 			}
 		}
@@ -287,7 +287,7 @@ async function msgStickerLinks( msg ) {
 						} );
 					}
 					catch ( error ) {
-						console.log( `- Failed to upload sticker to Zulip: ${error}` );
+						console.log( '- Failed to upload sticker to Zulip:', error );
 					}
 				}
 			}
