@@ -223,7 +223,7 @@ async function onZulipMessageDelete( msg ) {
 
 	if ( discordMessages.length === 0 ) return;
 
-	await Promise.all( new Set( discordMessages.map( discordMessage => discordMessage.discordChannelId ) ).map( async discordChannelId => {
+	await Promise.all( [...new Set( discordMessages.map( discordMessage => discordMessage.discordChannelId ) )].map( async discordChannelId => {
 		/** @type {import('discord.js').GuildTextBasedChannel} */
 		const discordChannel = await discord.channels.fetch(discordChannelId).catch( async error => {
 			if ( error?.code !== 10003 ) return console.error( error );
