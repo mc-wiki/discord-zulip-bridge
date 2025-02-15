@@ -8,7 +8,7 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 /** @type {Map<String, import('discord.js').Webhook>} */
 const webhookMap = new Map();
 
-zulip.registerQueue( [
+zulip.registerMainQueue( [
 	'message',
 	'update_message',
 	'delete_message',
@@ -23,35 +23,6 @@ zulip.registerQueue( [
 	client_capabilities: {
 		bulk_message_deletion: true,
 		linkifier_url_template: true
-	}
-}, async zulipEvent => {
-	try {
-		if ( zulipEvent.type === 'message' ) {
-			if ( zulipEvent.message.type === 'stream' ) return await onZulipMessage( zulipEvent.message );
-			if ( zulipEvent.message.type === 'private' ) return await onZulipCommand( zulipEvent.message );
-		}
-		if ( zulipEvent.type === 'update_message' ) return await onZulipMessageUpdate( zulipEvent );
-		if ( zulipEvent.type === 'delete_message' ) return await onZulipMessageDelete( zulipEvent );
-		if ( zulipEvent.type === 'realm_linkifiers' ) return update_linkifier_rules( zulipEvent.realm_linkifiers );
-		if ( zulipEvent.type === 'attachment' ) return await onZulipAttachment( zulipEvent );
-		if ( zulipEvent.type === 'realm' ) {
-			if ( zulipEvent.op === 'update' ) {
-				zulipEvent.data = { [zulipEvent.property]: zulipEvent.value };
-				zulipEvent.op = 'update_dict';
-			}
-			if ( zulipEvent.op === 'update_dict' ) Object.keys( zulipEvent.data ).forEach( setting => {
-				switch ( setting ) {
-					case 'max_file_upload_size_mib':
-					case 'default_code_block_language':
-						zulipLimits[setting] = zulipEvent.data[setting];
-						break;
-				}
-			} );
-		}
-		if ( zulipEvent.type === 'heartbeat' && isDebug ) console.log( `- Debug: Zulip Heartbeat acknowledged, event id ${zulipEvent.id}.` );
-	}
-	catch ( error ) {
-		console.error( `- Unhandled error while handling Zulip event ${zulipEvent?.type}:${zulipEvent?.op??''}`, error );
 	}
 } ).then( body => {
 	const {
@@ -73,9 +44,10 @@ zulip.registerQueue( [
 	console.log( '- Error during the main event queue:', error );
 } );
 
-async function onZulipMessage( msg ) {
-	if ( msg.type !== 'stream' ) return;
+zulip.on( 'message', async msg => {
 	if ( msg.sender_id === zulip.userId ) return;
+	if ( msg.type === 'private' ) return await onZulipCommand( msg );
+	if ( msg.type !== 'stream' ) return;
 	if ( ignored_zulip_users.includes( msg.sender_id ) ) return;
 
 	let threadName = null;
@@ -163,9 +135,9 @@ async function onZulipMessage( msg ) {
 		zulipSubject: msg.subject,
 		source: 'zulip',
 	} );
-}
+} );
 
-async function onZulipMessageUpdate( msg ) {
+zulip.on( 'update_message', async msg => {
 	if ( msg.rendering_only ) return;
 	if ( msg.user_id === zulip.userId ) return;
 	if ( ignored_zulip_users.includes( msg.user_id ) ) return;
@@ -211,9 +183,9 @@ async function onZulipMessageUpdate( msg ) {
 			discordChannel
 		} ) ).content
 	} );
-}
+} );
 
-async function onZulipMessageDelete( msg ) {
+zulip.on( 'delete_message', async msg => {
 	if ( msg.message_type !== 'stream' ) return;
 
 	/** @type {Number[]} */
@@ -245,9 +217,9 @@ async function onZulipMessageDelete( msg ) {
 			await discordChannel.messages.delete( channelMessage.discordMessageId );
 		} ) );
 	} ) );
-}
+} );
 
-async function onZulipAttachment( { op, attachment } ) {
+zulip.on( 'attachment', async ({ op, attachment }) => {
 	if ( op === 'remove' ) {
 		await db.delete(uploadsTable).where(eq(uploadsTable.zulipFileId, attachment.id));
 		return;
@@ -255,7 +227,20 @@ async function onZulipAttachment( { op, attachment } ) {
 	await db.update(uploadsTable).set( {
 		zulipFileId: attachment.id
 	} ).where(eq(uploadsTable.zulipFileUrl, attachment.path_id));
-}
+} );
+
+zulip.on( 'realm_linkifiers', update_linkifier_rules );
+
+zulip.on( 'realm:update_dict', settings => {
+	Object.keys( settings ).forEach( setting => {
+		switch ( setting ) {
+			case 'max_file_upload_size_mib':
+			case 'default_code_block_language':
+				zulipLimits[setting] = settings[setting];
+				break;
+		}
+	} );
+} );
 
 async function onZulipCommand( msg ) {
 	if ( msg.sender_id === zulip.userId ) return;

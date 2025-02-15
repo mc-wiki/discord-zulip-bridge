@@ -40,12 +40,23 @@ export const discord = new Discord.Client( {
 	]
 } );
 
+zulip.on( 'heartbeat', () => {
+	if ( isDebug ) console.log( '- Debug: Zulip Heartbeat acknowledged.' );
+} );
+
+zulip.on( 'error', error => {
+	console.error( '- Unhandled error while handling Zulip event:', error );
+} );
+
 discord.on( Discord.Events.ClientReady, () => {
 	console.log( `\n- Successfully logged in on Discord as ${discord.user.username}!\n` );
 } );
 
-discord.on( Discord.Events.Error, console.error );
 discord.on( Discord.Events.Warn, console.warn );
+
+discord.on( Discord.Events.Error, error => {
+	console.error( '- Unhandled error while handling Discord event:', error );
+} );
 
 discord.login(process.env.DISCORD_TOKEN).catch( error => {
 	console.log( '- Error while logging in:', error );

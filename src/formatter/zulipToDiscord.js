@@ -207,7 +207,7 @@ function replaceQuote( text ) {
 		quote = quote.replace( /(<)?\b(https?:\/\/[^\s<>]+[^\s"'),.:;<>\]])(>)?/g, (link, prefix, url, suffix) => {
 			if ( prefix && suffix ) return link;
 			return `<${url}>`;
-		} );
+		} ).replace( /^(> .*\n)\n+/gm, '$1' );
 		if ( quote.includes( '```quote\n' ) ) quote = replaceQuote( quote );
 		return '> ' + quote.replaceAll( '\n', '\n> ' ) + '\n';
 	} );
