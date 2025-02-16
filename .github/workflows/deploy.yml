@@ -2,7 +2,7 @@ name: Deploy
 
 on:
   push:
-    branches: [ master ]
+    branches: [ main ]
   # Allow manually triggering deployment
   workflow_dispatch:
 
@@ -18,4 +18,4 @@ jobs:
           username: wiki-bridge
           key: ${{ secrets.DEPLOY_KEY }}
           port: ${{ secrets.DEPLOY_PORT }}
-          script: 'cd discord-zulip-bridge && ./update.sh'
+          script: 'cd discord-zulip-bridge && ./scripts/update.sh'
