@@ -1,0 +1,21 @@
+name: Deploy
+
+on:
+  push:
+    branches: [ master ]
+  # Allow manually triggering deployment
+  workflow_dispatch:
+
+jobs:
+  ssh-deploy:
+    name: Deploy via SSH
+    runs-on: ubuntu-latest
+    steps:
+      - name: Execute update command via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: wiki-bridge
+          key: ${{ secrets.DEPLOY_KEY }}
+          port: ${{ secrets.DEPLOY_PORT }}
+          script: 'cd discord-zulip-bridge && ./update.sh'
