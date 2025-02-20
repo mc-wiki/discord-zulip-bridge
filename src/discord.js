@@ -4,7 +4,7 @@ import { zulip, discord } from './clients.js';
 import formatToZulip from './formatter/discordToZulip.js';
 import { ignored_discord_users } from './config.js';
 import { db, channelsTable, messagesTable } from './db.js';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 
 discord.on( Events.MessageCreate, async msg => {
 	if ( !msg.guildId || !msg.channel.isTextBased() || msg.system ) return;
@@ -52,6 +52,16 @@ discord.on( Events.MessageDelete, async msg => {
 	if ( zulipMessages.length === 0 ) return;
 
 	await zulip.deleteMessage( zulipMessages[0].zulipMessageId );
+} );
+
+discord.on( Events.MessageBulkDelete, async messages => {
+	const zulipMessages = await db.delete(messagesTable).where(inArray(messagesTable.discordMessageId, messages.map( msg => msg.id ))).returning();
+
+	if ( zulipMessages.length === 0 ) return;
+
+	await Promise.all( zulipMessages.map( async zulipMessage => {
+		await zulip.deleteMessage( zulipMessage.zulipMessageId );
+	} ) );
 } );
 
 discord.on( Events.ThreadCreate, async (thread, isNew) => {
