@@ -159,18 +159,20 @@ export default async function formatter( msg, msgData ) {
 	} );
 
 	// Linkifiers
-	// Source: https://github.com/zulip/zulip/blob/main/web/third/marked/lib/marked.cjs#L650
+	// Based on: https://github.com/zulip/zulip/blob/main/web/third/marked/lib/marked.cjs#L650
 	const regexes = [...linkifier_map.keys()];
+	let escapedContent = message.content.replace( /(`+)(.*?)\1(?!`)/gs, '<codeReplacement>' );
 	regexes.forEach(function (regex) {
-		message.content = message.content.replace(regex, (match, ...groups) => {
+		let linkifierMatch;
+		while ( ( linkifierMatch = regex.exec( escapedContent ) ) !== null ) {
+			let [match, ...groups] = linkifierMatch;
 			// Insert the created URL
-			let href = handleLinkifier(regex, groups.slice(0, -2), match);
+			let href = handleLinkifier(regex, groups, match);
 			if (href !== undefined) {
-				return `[${match}](<${href}>)`;
-			} else {
-				return match;
+				escapedContent = escapedContent.replaceAll( match, '<linkifierReplacement>' );
+				message.content = message.content.replaceAll( match, `[${match}](<${href}>)` );
 			}
-		});
+		}
 	});
 
 	// Don't exceed message length limit
