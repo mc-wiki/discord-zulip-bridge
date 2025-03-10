@@ -2,7 +2,7 @@ import * as url_template_lib from 'url-template';
 import { messageLink } from 'discord.js';
 import { zulipLimits } from '../classes.js';
 import { zulip, discord } from '../clients.js';
-import { mentionable_discord_roles, zulipToDiscordReplacements } from '../config.js';
+import { discord_username_prefix, discord_username_suffix, mentionable_discord_roles, zulipToDiscordReplacements } from '../config.js';
 import { db, messagesTable, channelsTable } from '../db.js';
 import { and, eq, isNull } from 'drizzle-orm';
 
@@ -26,7 +26,7 @@ const linkifier_map = new Map();
 export default async function formatter( msg, msgData ) {
 	/** @type {import('discord.js').WebhookMessageCreateOptions} */
 	let message = {
-		username: msg.sender_full_name,
+		username: discord_username_prefix + msg.sender_full_name + discord_username_suffix,
 		avatarURL: msg.avatar_url,
 		content: ( msg.is_me_message ? '_' + msg.content.replace( /^\/me /, '' ) + '_' : msg.content ),
 	};

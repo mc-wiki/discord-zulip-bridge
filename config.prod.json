@@ -2,6 +2,7 @@
     "ignored_discord_users": ["1183218722526216285", "448938940909486081", "481077467415838720"],
     "ignored_zulip_users": [868323],
     "upload_files_to_zulip": true,
+	"discord_username_suffix": " [Zulip]",
     "text_replacements": {
         ":zulip:": "<:zulip:1334889309089562675>",
         ":angry_villager:": "<:angry_villager:480862589983916042>",

@@ -6,5 +6,7 @@
 	"text_replacements": {
 		":zulip:": "<:zulip:1334889309089562675>"
 	},
-	"upload_files_to_zulip": false
+	"upload_files_to_zulip": false,
+	"discord_username_prefix": "",
+	"discord_username_suffix": ""
 }

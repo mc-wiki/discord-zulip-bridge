@@ -8,7 +8,9 @@ export const {
 	text_replacements = {
 		":zulip:": "<:zulip:1334889309089562675>"
 	},
-	upload_files_to_zulip = false
+	upload_files_to_zulip = false,
+	discord_username_prefix = "",
+	discord_username_suffix = ""
 } = config;
 
 export const zulipToDiscordReplacements = new Map( Object.entries( text_replacements ).map( replacement => [replacement[0], String(replacement[1])] ) );
