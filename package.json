@@ -21,7 +21,7 @@
     "drizzle-orm": "^0.39.3",
     "got": "^14.4.6",
     "got-ssrf": "^3.0.0",
-    "npm": "^11.1.0",
+    "npm": "^11.7.0",
     "url-template": "^3.1.1"
   },
   "devDependencies": {
