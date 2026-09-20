@@ -63,7 +63,7 @@ discord.on( Events.MessageCreate, async msg => {
 	const zulipMsg = await zulip.sendMessage( Object.assign( await formatToZulip( msg ), {
 		type: 'stream',
 		to: zulipChannels[0].zulipStream,
-		topic: zulipChannels[0].zulipSubject,
+		topic: zulipChannels[0].zulipSubject || '',
 	} ) );
 
 	await db.insert(messagesTable).values( {

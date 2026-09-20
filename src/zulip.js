@@ -22,7 +22,8 @@ zulip.registerMainQueue( [
 	],
 	client_capabilities: {
 		bulk_message_deletion: true,
-		linkifier_url_template: true
+		linkifier_url_template: true,
+		empty_topic_name: true
 	}
 } ).then( body => {
 	const {
@@ -53,7 +54,11 @@ zulip.on( 'message', async msg => {
 	let threadName = null;
 	/** @type {null|import('discord.js').TextChannel} */
 	let parentChannel = null;
-	const discordChannels = await db.select().from(channelsTable).where(and(eq(channelsTable.zulipStream, msg.stream_id),eq(channelsTable.zulipSubject, msg.subject)));
+	let conditions = eq(channelsTable.zulipStream, msg.stream_id);
+	if ( msg.subject ) {
+		conditions = and(conditions, eq(channelsTable.zulipSubject, msg.subject));
+	}
+	const discordChannels = await db.select().from(channelsTable).where(conditions);
 	if ( discordChannels.length === 0 ) {
 		if ( msg.subject.startsWith( '✔ ' ) ) return;
 		let parent = msg.subject.includes( '/' ) ? msg.subject.split('/')[0] : null;
